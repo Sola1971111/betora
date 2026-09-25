@@ -1,0 +1,432 @@
+import express from 'express';
+import cors from 'cors';
+import { config, oddsApiConfig } from './config.js';
+import { OddsApiService, OddsApiError } from './oddsApiService.js';
+import { normalizeCompetitions, normalizeEvent, normalizeSports } from './normalize.js';
+import { BETORA_SPORTS, type BetoraSport } from './sportMapping.js';
+import { getTeamLogos } from './teamLogos.js';
+import type { RawEvent } from './rawTypes.js';
+import { virtualEngine } from './virtual/engine.js';
+import { userStore } from './users/store.js';
+import { walletRequestStore } from './wallet/store.js';
+import type { CryptoMethod } from './wallet/types.js';
+import { notificationStore } from './notifications/store.js';
+
+const app = express();
+const oddsApi = new OddsApiService(oddsApiConfig);
+
+app.use(
+  cors({
+    origin: config.corsOrigins,
+  })
+);
+app.use(express.json());
+
+function isBetoraSport(value: string): value is BetoraSport {
+  return (BETORA_SPORTS as readonly string[]).includes(value);
+}
+
+async function logosForEvents(events: RawEvent[]): Promise<Record<string, string | null>> {
+  const teamNames = events.flatMap((e) => [e.home_team, e.away_team]);
+  if (teamNames.length === 0) return {};
+  return getTeamLogos(teamNames);
+}
+
+function handleError(res: express.Response, err: unknown) {
+  if (err instanceof OddsApiError) {
+    // eslint-disable-next-line no-console
+    console.error('[ODDS API] upstream error:', err.message);
+    res.status(502).json({ error: 'Unable to load matches', detail: err.message });
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.error('[ODDS API] unexpected error:', err);
+  res.status(500).json({ error: 'Unable to load matches' });
+}
+
+// GET /api/sports — Betora-facing sport groups (football/basketball/tennis) and their competitions
+app.get('/api/sports', async (_req, res) => {
+  try {
+    const raw = await oddsApi.getSports();
+    res.json({
+      sports: normalizeSports(raw),
+      competitions: normalizeCompetitions(raw),
+      config: { liveOddsRefreshIntervalMs: config.liveOddsRefreshIntervalMs },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /api/events?sport=football — upcoming events for a Betora sport
+app.get('/api/events', async (req, res) => {
+  const sport = String(req.query.sport ?? '');
+  if (!isBetoraSport(sport)) {
+    res.status(400).json({ error: 'Invalid or missing sport query parameter' });
+    return;
+  }
+  try {
+    const raw = await oddsApi.getUpcomingEvents(sport);
+    const teamLogos = await logosForEvents(raw);
+    const events = raw
+      .map((e) => normalizeEvent(e, { defaultBookmaker: config.defaultBookmaker }, false, teamLogos))
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+    const skipped = raw.length - events.length;
+    if (skipped > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[ODDS API] ${skipped} events had no usable markets`);
+    }
+    res.json({ events });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /api/events/live — genuinely live events, optionally filtered by sport
+app.get('/api/events/live', async (req, res) => {
+  const sportParam = req.query.sport ? String(req.query.sport) : undefined;
+  if (sportParam && !isBetoraSport(sportParam)) {
+    res.status(400).json({ error: 'Invalid sport query parameter' });
+    return;
+  }
+  try {
+    const raw = await oddsApi.getLiveEvents(sportParam as BetoraSport | undefined);
+    const teamLogos = await logosForEvents(raw);
+    const events = raw
+      .map((e) => normalizeEvent(e, { defaultBookmaker: config.defaultBookmaker }, true, teamLogos))
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+    res.json({ events });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /api/events/:id?sport=football — single event detail (all markets)
+app.get('/api/events/:id', async (req, res) => {
+  const sport = String(req.query.sport ?? '');
+  if (!isBetoraSport(sport)) {
+    res.status(400).json({ error: 'Invalid or missing sport query parameter' });
+    return;
+  }
+  const eventId = req.params.id;
+  if (!eventId || typeof eventId !== 'string' || eventId.length > 128) {
+    res.status(400).json({ error: 'Invalid event id' });
+    return;
+  }
+  try {
+    const raw = await oddsApi.getEventById(sport, eventId);
+    if (!raw) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+    const event = normalizeEvent(raw, { defaultBookmaker: config.defaultBookmaker }, false, await logosForEvents([raw]));
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+    res.json({ event });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ---- Virtual Football ----
+// A fully simulated matchday cycle (not real sports data) — random EPL-named
+// teams grouped into one matchday of fixtures, generated odds, and randomly
+// determined results on a fixed timer.
+
+// GET /api/virtual/current — the matchday currently in betting/in-play/settled phase
+app.get('/api/virtual/current', (_req, res) => {
+  try {
+    res.json({ matchday: virtualEngine.getCurrentMatchday() });
+  } catch {
+    res.status(503).json({ error: 'Virtual engine not ready' });
+  }
+});
+
+// POST /api/virtual/bets — place a bet ticket (one or more picks) on the current matchday
+// body: { userId, userLabel, stake, picks: [{ fixtureId, marketKey, outcomeId }, ...] }
+app.post('/api/virtual/bets', express.json(), (req, res) => {
+  const { userId, userLabel, stake, picks } = req.body ?? {};
+
+  if (typeof userId !== 'string' || !userId) {
+    res.status(400).json({ error: 'Missing userId' });
+    return;
+  }
+  if (typeof stake !== 'number' || !Number.isFinite(stake) || stake <= 0) {
+    res.status(400).json({ error: 'Invalid stake' });
+    return;
+  }
+  if (!Array.isArray(picks) || picks.length === 0) {
+    res.status(400).json({ error: 'No selections provided' });
+    return;
+  }
+  const validPicks = picks.every(
+    (p) => p && typeof p.fixtureId === 'string' && typeof p.marketKey === 'string' && typeof p.outcomeId === 'string'
+  );
+  if (!validPicks) {
+    res.status(400).json({ error: 'Invalid selection' });
+    return;
+  }
+
+  try {
+    const bet = virtualEngine.placeBet({
+      userId,
+      userLabel: typeof userLabel === 'string' && userLabel ? userLabel : userId,
+      stake,
+      picks,
+    });
+    res.json({ bet });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to place bet' });
+  }
+});
+
+// GET /api/virtual/bets?userId=... — a user's virtual bet history
+app.get('/api/virtual/bets', (req, res) => {
+  const userId = String(req.query.userId ?? '');
+  if (!userId) {
+    res.status(400).json({ error: 'Missing userId query parameter' });
+    return;
+  }
+  res.json({ bets: virtualEngine.getBetsForUser(userId) });
+});
+
+// ---- Auth (mock, in-memory) ----
+
+app.post('/api/auth/signup', express.json(), (req, res) => {
+  const { fullName, email, password } = req.body ?? {};
+  if (typeof fullName !== 'string' || typeof email !== 'string' || typeof password !== 'string') {
+    res.status(400).json({ error: 'Invalid signup details' });
+    return;
+  }
+  try {
+    const user = userStore.signup(fullName, email, password);
+    res.json({ user });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to create account' });
+  }
+});
+
+app.post('/api/auth/login', express.json(), (req, res) => {
+  const { email, password } = req.body ?? {};
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    res.status(400).json({ error: 'Invalid login details' });
+    return;
+  }
+  try {
+    const user = userStore.login(email, password);
+    res.json({ user });
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Unable to log in' });
+  }
+});
+
+// ---- Admin (no auth wall for now, per current scope) ----
+
+app.get('/api/admin/virtual/bets', (_req, res) => {
+  res.json({ bets: virtualEngine.getAllBets() });
+});
+
+app.get('/api/admin/virtual/users', (_req, res) => {
+  res.json({ users: virtualEngine.getUserSummaries() });
+});
+
+// GET /api/admin/virtual/matchdays — current matchday plus the next 5,
+// including predetermined results the public endpoint never reveals early.
+app.get('/api/admin/virtual/matchdays', (_req, res) => {
+  try {
+    res.json({ matchdays: virtualEngine.getUpcomingMatchdaysForAdmin() });
+  } catch {
+    res.status(503).json({ error: 'Virtual engine not ready' });
+  }
+});
+
+app.get('/api/admin/users', (_req, res) => {
+  res.json({ users: userStore.getAll() });
+});
+
+// ---- Wallet ----
+// Balance lives entirely on the backend, keyed by user id — the single
+// source of truth for the whole app. Deposits and withdrawals are now
+// approval-gated requests rather than instant actions: a deposit only
+// credits once an admin approves it, and a withdrawal debits immediately
+// (funds held pending review) but is only truly paid out on approval —
+// rejecting it returns the held funds. Every balance-affecting event also
+// creates a notification for the affected user.
+
+app.get('/api/wallet/balance', (req, res) => {
+  const userId = String(req.query.userId ?? '');
+  if (!userId) {
+    res.status(400).json({ error: 'Missing userId query parameter' });
+    return;
+  }
+  try {
+    res.json({ balance: userStore.getBalance(userId) });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : 'User not found' });
+  }
+});
+
+// POST /api/wallet/deposit-request — creates a pending deposit request; no
+// balance change happens until an admin approves it.
+app.post('/api/wallet/deposit-request', express.json(), (req, res) => {
+  const { userId, userLabel, amount, method } = req.body ?? {};
+  if (typeof userId !== 'string' || !userId) {
+    res.status(400).json({ error: 'Missing userId' });
+    return;
+  }
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: 'Invalid amount' });
+    return;
+  }
+  if (typeof method !== 'string') {
+    res.status(400).json({ error: 'Invalid method' });
+    return;
+  }
+  try {
+    const request = walletRequestStore.createDeposit(
+      userId,
+      typeof userLabel === 'string' && userLabel ? userLabel : userId,
+      method as CryptoMethod,
+      amount
+    );
+    // eslint-disable-next-line no-console
+    console.log(`[WALLET] Deposit request: ${userId} ${amount} (${method}) — pending admin review`);
+    res.json({ request });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to submit deposit request' });
+  }
+});
+
+// POST /api/wallet/withdrawal-request — debits balance immediately (held
+// pending review) and creates a pending withdrawal request for admin review.
+app.post('/api/wallet/withdrawal-request', express.json(), (req, res) => {
+  const { userId, userLabel, amount, method, address } = req.body ?? {};
+  if (typeof userId !== 'string' || !userId) {
+    res.status(400).json({ error: 'Missing userId' });
+    return;
+  }
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: 'Invalid amount' });
+    return;
+  }
+  if (typeof method !== 'string' || typeof address !== 'string' || !address) {
+    res.status(400).json({ error: 'Invalid method or address' });
+    return;
+  }
+  try {
+    const request = walletRequestStore.createWithdrawal(
+      userId,
+      typeof userLabel === 'string' && userLabel ? userLabel : userId,
+      method as CryptoMethod,
+      amount,
+      address
+    );
+    // eslint-disable-next-line no-console
+    console.log(`[WALLET] Withdrawal request: ${userId} ${amount} (${method}) — held pending admin review`);
+    res.json({ request, balance: userStore.getBalance(userId) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to submit withdrawal request' });
+  }
+});
+
+// GET /api/wallet/requests?userId=... — a user's own deposit/withdrawal request history
+app.get('/api/wallet/requests', (req, res) => {
+  const userId = String(req.query.userId ?? '');
+  if (!userId) {
+    res.status(400).json({ error: 'Missing userId query parameter' });
+    return;
+  }
+  res.json({ requests: walletRequestStore.getForUser(userId) });
+});
+
+// POST /api/admin/wallet/adjust — admin can add or deduct any user's balance
+// directly; always generates a notification framed as a deposit (credit) or
+// withdrawal (debit), matching how a real balance change would read to the user.
+app.post('/api/admin/wallet/adjust', express.json(), (req, res) => {
+  const { userId, amount, reason } = req.body ?? {};
+  if (typeof userId !== 'string' || !userId) {
+    res.status(400).json({ error: 'Missing userId' });
+    return;
+  }
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) {
+    res.status(400).json({ error: 'Invalid amount' });
+    return;
+  }
+  try {
+    const balance = userStore.adjustBalance(userId, amount, true);
+    const user = userStore.getById(userId);
+    const absAmount = `$${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (amount > 0) {
+      notificationStore.create(userId, 'Deposit Successful', `Deposit of ${absAmount} has been added to your balance.`);
+    } else {
+      notificationStore.create(userId, 'Withdrawal Processed', `Withdrawal of ${absAmount} has been deducted from your balance.`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[ADMIN] Balance adjustment: ${userId} ${amount >= 0 ? '+' : ''}${amount}` + (reason ? ` (${reason})` : '') + ` -> balance ${balance}`);
+    res.json({ user });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to adjust balance' });
+  }
+});
+
+// ---- Admin: wallet request review ----
+
+app.get('/api/admin/wallet/requests', (_req, res) => {
+  res.json({ requests: walletRequestStore.getAll() });
+});
+
+app.post('/api/admin/wallet/requests/:id/approve', (req, res) => {
+  try {
+    const request = walletRequestStore.approve(req.params.id);
+    res.json({ request });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to approve request' });
+  }
+});
+
+app.post('/api/admin/wallet/requests/:id/reject', (req, res) => {
+  try {
+    const request = walletRequestStore.reject(req.params.id);
+    res.json({ request });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to reject request' });
+  }
+});
+
+// ---- Notifications ----
+
+app.get('/api/notifications', (req, res) => {
+  const userId = String(req.query.userId ?? '');
+  if (!userId) {
+    res.status(400).json({ error: 'Missing userId query parameter' });
+    return;
+  }
+  res.json({ notifications: notificationStore.getForUser(userId) });
+});
+
+app.post('/api/notifications/:id/read', (req, res) => {
+  const notification = notificationStore.markRead(req.params.id);
+  if (!notification) {
+    res.status(404).json({ error: 'Notification not found' });
+    return;
+  }
+  res.json({ notification });
+});
+
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    mockMode: oddsApiConfig.useMockData || !oddsApiConfig.apiKey,
+  });
+});
+
+app.listen(config.port, () => {
+  // eslint-disable-next-line no-console
+  console.log(`[ODDS API] Betora odds server listening on port ${config.port}`);
+  virtualEngine.start().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('[VIRTUAL] Failed to start engine:', err);
+  });
+});
