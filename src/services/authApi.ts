@@ -8,9 +8,9 @@ export interface AuthUser {
   balance: number;
 }
 
-async function get<T>(path: string): Promise<T> {
+async function get<T>(path: string, timeoutMs = 10000): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE_URL}${path}`, { signal: controller.signal });
     if (!res.ok) {
@@ -40,6 +40,18 @@ export async function signup(fullName: string, email: string, password: string):
 
 export async function login(email: string, password: string): Promise<AuthUser> {
   const data = await postRequest<{ user: AuthUser }>('/api/auth/login', { email, password });
+  return data.user;
+}
+
+// Re-validates a previously-logged-in user id after a page reload — the
+// frontend only ever stores the id locally, never trusting cached name/email/
+// balance across reloads, since those can change server-side at any time.
+// Uses a much longer timeout than other calls: this is the very first
+// request on page load, so on a free-tier host whose backend has spun down
+// from inactivity, it may need to wait through a cold start (up to ~60s)
+// rather than give up early and wrongly fall back to guest mode.
+export async function fetchCurrentUser(userId: string): Promise<AuthUser> {
+  const data = await get<{ user: AuthUser }>(`/api/auth/me?userId=${encodeURIComponent(userId)}`, 60000);
   return data.user;
 }
 

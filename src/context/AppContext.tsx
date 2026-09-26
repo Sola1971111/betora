@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import type { BetSelection, PlacedBet, Transaction, AppNotification, SavedWithdrawalAddress, CryptoMethod } from '../types';
 import { placedBets as initialBets, transactions as initialTransactions } from '../data/mockData';
-import { login as apiLogin, signup as apiSignup, type AuthUser } from '../services/authApi';
-import { fetchWalletBalance, requestDeposit as apiRequestDeposit, requestWithdrawal as apiRequestWithdrawal } from '../services/walletApi';
+import { login as apiLogin, signup as apiSignup, fetchCurrentUser, type AuthUser } from '../services/authApi';
+import { requestDeposit as apiRequestDeposit, requestWithdrawal as apiRequestWithdrawal, fetchWalletBalance } from '../services/walletApi';
+import { ApiRequestError } from '../services/oddsApi';
 import { fetchNotifications, markNotificationRead as apiMarkNotificationRead } from '../services/notificationsApi';
 
 interface AppContextValue {
@@ -63,6 +64,32 @@ const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 const VALID_PROMO_CODES = ['BETORA100', 'WELCOME50'];
 const NOTIFICATIONS_POLL_MS = 5000;
+const SESSION_STORAGE_KEY = 'betora_session_user';
+
+function loadSavedUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null; // corrupted/blocked storage — just treat as no saved session
+  }
+}
+
+function saveUser(user: AuthUser) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+  } catch {
+    // storage unavailable (private browsing, quota) — session just won't persist
+  }
+}
+
+function clearSavedUser() {
+  try {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -78,12 +105,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [bookingCodes, setBookingCodes] = useState<Record<string, BetSelection[]>>({});
   const seenNotificationIds = useRef<Set<string>>(new Set());
 
+  // Restores a logged-in session after a page reload. The account itself
+  // lives on the backend, not in this component's state, so a fresh page
+  // load has no memory of "isAuthenticated" unless we check localStorage
+  // for who was logged in and re-verify that account still exists — using
+  // the server's fresh record (name/email/balance), never the locally
+  // cached one, in case anything changed since the last visit.
+  useEffect(() => {
+    const saved = loadSavedUser();
+    if (!saved) return;
+
+    let cancelled = false;
+    fetchCurrentUser(saved.id)
+      .then((fresh) => {
+        if (cancelled) return;
+        setUser(fresh);
+        setBalance(fresh.balance);
+        setIsAuthenticated(true);
+        saveUser(fresh);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Only clear the saved session on a confirmed "account no longer
+        // exists" (404) — a transient network error shouldn't log someone
+        // out of a perfectly valid session, so just leave them logged out
+        // for this load and let them retry rather than wiping the session.
+        if (err instanceof ApiRequestError && err.status === 404) {
+          clearSavedUser();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     try {
       const loggedInUser = await apiLogin(email, password);
       setUser(loggedInUser);
       setBalance(loggedInUser.balance);
       setIsAuthenticated(true);
+      saveUser(loggedInUser);
       return { success: true };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Unable to log in' };
@@ -96,6 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setUser(newUser);
       setBalance(newUser.balance);
       setIsAuthenticated(true);
+      saveUser(newUser);
       return { success: true };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Unable to create account' };
@@ -108,6 +172,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBalance(0);
     setNotifications([]);
     seenNotificationIds.current = new Set();
+    clearSavedUser();
   }, []);
 
   const toggleBalanceHidden = useCallback(() => setBalanceHidden((h) => !h), []);
