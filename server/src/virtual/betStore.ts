@@ -83,7 +83,7 @@ class VirtualBetStore {
     return result.rows.map(toBet);
   }
 
-  async getUserSummaries(): Promise
+  async getUserSummaries(): Promise<
     { userId: string; userLabel: string; betCount: number; totalStaked: number; totalWon: number }[]
   > {
     const result = await pool.query<{
@@ -108,7 +108,7 @@ class VirtualBetStore {
       betCount: Number(r.bet_count),
       totalStaked: Number(r.total_staked),
       totalWon: Number(r.total_won),
-    }))
+    }));
   }
 }
 
