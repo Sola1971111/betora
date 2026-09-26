@@ -108,7 +108,7 @@ class VirtualBetStore {
       betCount: Number(r.bet_count),
       totalStaked: Number(r.total_staked),
       totalWon: Number(r.total_won),
-    }));
+    }))
   }
 }
 
