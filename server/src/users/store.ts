@@ -1,77 +1,97 @@
-import type { PublicUser, StoredUser } from './types.js';
+import { pool } from '../db/pool.js';
+import type { PublicUser } from './types.js';
 
 const STARTING_BALANCE = 0;
 
-function toPublic(user: StoredUser): PublicUser {
-  return { id: user.id, fullName: user.fullName, email: user.email, createdAt: user.createdAt, balance: user.balance };
+interface UserRow {
+  id: string;
+  full_name: string;
+  email: string;
+  password: string;
+  balance: string; // numeric comes back as string from pg
+  created_at: Date;
+}
+
+function toPublic(row: UserRow): PublicUser {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email,
+    createdAt: row.created_at.toISOString(),
+    balance: Number(row.balance),
+  };
 }
 
 class UserStore {
-  private usersByEmail = new Map<string, StoredUser>();
-  private usersById = new Map<string, StoredUser>();
-
-  signup(fullName: string, email: string, password: string): PublicUser {
+  async signup(fullName: string, email: string, password: string): Promise<PublicUser> {
     const key = email.trim().toLowerCase();
     if (!fullName.trim()) throw new Error('Full name is required');
     if (!key) throw new Error('Email is required');
     if (!password || password.length < 4) throw new Error('Password must be at least 4 characters');
-    if (this.usersByEmail.has(key)) throw new Error('An account with this email already exists');
 
-    const user: StoredUser = {
-      id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      fullName: fullName.trim(),
-      email: key,
-      password,
-      createdAt: new Date().toISOString(),
-      balance: STARTING_BALANCE,
-    };
-    this.usersByEmail.set(key, user);
-    this.usersById.set(user.id, user);
-    return toPublic(user);
+    const existing = await pool.query<UserRow>('SELECT id FROM users WHERE email = $1', [key]);
+    if (existing.rows.length > 0) throw new Error('An account with this email already exists');
+
+    const id = `u-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const result = await pool.query<UserRow>(
+      `INSERT INTO users (id, full_name, email, password, balance)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [id, fullName.trim(), key, password, STARTING_BALANCE]
+    );
+    return toPublic(result.rows[0]);
   }
 
-  login(email: string, password: string): PublicUser {
+  async login(email: string, password: string): Promise<PublicUser> {
     const key = email.trim().toLowerCase();
-    const user = this.usersByEmail.get(key);
-    if (!user || user.password !== password) {
+    const result = await pool.query<UserRow>('SELECT * FROM users WHERE email = $1', [key]);
+    const row = result.rows[0];
+    if (!row || row.password !== password) {
       throw new Error('Invalid email or password');
     }
-    return toPublic(user);
+    return toPublic(row);
   }
 
-  getById(id: string): PublicUser | null {
-    const user = this.usersById.get(id);
-    return user ? toPublic(user) : null;
+  async getById(id: string): Promise<PublicUser | null> {
+    const result = await pool.query<UserRow>('SELECT * FROM users WHERE id = $1', [id]);
+    return result.rows[0] ? toPublic(result.rows[0]) : null;
   }
 
-  getAll(): PublicUser[] {
-    return Array.from(this.usersByEmail.values())
-      .map(toPublic)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  async getAll(): Promise<PublicUser[]> {
+    const result = await pool.query<UserRow>('SELECT * FROM users ORDER BY created_at DESC');
+    return result.rows.map(toPublic);
   }
 
-  getBalance(userId: string): number {
-    const user = this.usersById.get(userId);
-    if (!user) throw new Error('User not found');
-    return user.balance;
+  async getBalance(userId: string): Promise<number> {
+    const result = await pool.query<UserRow>('SELECT balance FROM users WHERE id = $1', [userId]);
+    if (!result.rows[0]) throw new Error('User not found');
+    return Number(result.rows[0].balance);
   }
 
-  /**
-   * Adjusts a user's balance by a signed delta (positive = credit, negative
-   * = debit). `allowNegative` controls whether the result may drop below
-   * zero — user-initiated debits (bets, withdrawals) should never be
-   * allowed to overdraw, but an admin correction may intentionally need to.
-   * Returns the new balance.
-   */
-  adjustBalance(userId: string, delta: number, allowNegative = false): number {
-    const user = this.usersById.get(userId);
-    if (!user) throw new Error('User not found');
-    const next = Math.round((user.balance + delta) * 100) / 100;
-    if (!allowNegative && next < 0) {
-      throw new Error('Insufficient balance');
+  async adjustBalance(userId: string, delta: number, allowNegative = false): Promise<number> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query<UserRow>('SELECT balance FROM users WHERE id = $1 FOR UPDATE', [userId]);
+      if (!current.rows[0]) throw new Error('User not found');
+
+      const next = Math.round((Number(current.rows[0].balance) + delta) * 100) / 100;
+      if (!allowNegative && next < 0) {
+        throw new Error('Insufficient balance');
+      }
+
+      const updated = await client.query<UserRow>('UPDATE users SET balance = $1 WHERE id = $2 RETURNING balance', [
+        next,
+        userId,
+      ]);
+      await client.query('COMMIT');
+      return Number(updated.rows[0].balance);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    user.balance = next;
-    return next;
   }
 }
 
