@@ -50,6 +50,11 @@ export async function fetchVirtualBetHistory(userId: string): Promise<VirtualBet
   return data.bets;
 }
 
+export async function fetchVirtualBetById(id: string): Promise<VirtualBet> {
+  const data = await get<{ bet: VirtualBet }>(`/api/virtual/bets/${encodeURIComponent(id)}`);
+  return data.bet;
+}
+
 // ---- Admin ----
 
 export async function fetchAdminVirtualBets(): Promise<VirtualBet[]> {

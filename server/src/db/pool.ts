@@ -65,10 +65,23 @@ const SCHEMA_SQL = `
     settled_at TIMESTAMPTZ
   );
 
+  CREATE TABLE IF NOT EXISTS transactions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type TEXT NOT NULL, -- 'deposit' | 'withdrawal' | 'bet' | 'winnings' | 'bonus'
+    method TEXT,
+    description TEXT NOT NULL,
+    amount NUMERIC(14,2) NOT NULL, -- negative for outgoing
+    status TEXT NOT NULL DEFAULT 'completed', -- 'completed' | 'pending' | 'failed'
+    date TIMESTAMPTZ NOT NULL DEFAULT now(),
+    wallet_request_id TEXT REFERENCES wallet_requests(id) ON DELETE SET NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
   CREATE INDEX IF NOT EXISTS idx_wallet_requests_user ON wallet_requests(user_id);
   CREATE INDEX IF NOT EXISTS idx_virtual_bets_user ON virtual_bets(user_id);
   CREATE INDEX IF NOT EXISTS idx_virtual_bets_matchday ON virtual_bets(matchday_id);
+  CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
 `;
 
 export async function ensureSchema(): Promise<void> {

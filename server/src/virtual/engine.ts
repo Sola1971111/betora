@@ -5,6 +5,7 @@ import { virtualConfig } from '../config.js';
 import { userStore } from '../users/store.js';
 import { notificationStore } from '../notifications/store.js';
 import { virtualBetStore } from './betStore.js';
+import { transactionStore } from '../transactions/store.js';
 import type {
   PublicVirtualFixture,
   PublicVirtualMatchday,
@@ -15,13 +16,16 @@ import type {
 } from './types.js';
 
 const FIXTURES_PER_MATCHDAY = 9;
-const LOOKAHEAD_COUNT = 5;
+const LOOKAHEAD_COUNT = 5; // how many future matchdays stay pre-generated for admin preview
 
 function log(...args: unknown[]) {
   // eslint-disable-next-line no-console
   console.log('[VIRTUAL]', ...args);
 }
 
+/** Builds fixture content (teams, markets, predetermined result) with no
+ * real timing yet — timing is stamped separately, only for whichever
+ * matchday is actually current, to avoid any possibility of clock drift. */
 function buildMatchdayContent(round: number): VirtualMatchday {
   const fixturePairs = pickMatchdayFixtures(FIXTURES_PER_MATCHDAY);
   const fixtures: VirtualFixture[] = fixturePairs.map(([homeTeam, awayTeam]) => {
@@ -63,12 +67,12 @@ function toPublicMatchday(matchday: VirtualMatchday): PublicVirtualMatchday {
 }
 
 class VirtualEngine {
-  private queue: VirtualMatchday[] = [];
+  private queue: VirtualMatchday[] = []; // index 0 = current/live matchday, rest = future lookahead content
   private round = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   async start() {
-    if (this.timer || this.queue.length > 0) return;
+    if (this.timer || this.queue.length > 0) return; // already running
 
     await prefetchTeamLogos();
 
@@ -125,12 +129,16 @@ class VirtualEngine {
   }
 
   private advanceQueue() {
-    this.queue.shift();
+    this.queue.shift(); // drop the just-settled matchday
     this.round += 1;
     this.queue.push(buildMatchdayContent(this.round));
     this.activateCurrent();
   }
 
+  /** Wraps every scheduled transition so a bug anywhere in the cycle logs
+   * loudly instead of silently freezing the engine on the current phase
+   * forever. Transitions are async (they touch the database), so errors
+   * are caught via .catch on the returned promise. */
   private schedule(fn: () => void | Promise<void>, delayMs: number) {
     this.timer = setTimeout(() => {
       Promise.resolve(fn()).catch((err) => {
@@ -154,18 +162,36 @@ class VirtualEngine {
     const pendingBets = await virtualBetStore.getPendingForMatchday(matchday.id);
 
     for (const bet of pendingBets) {
-      const allWon = bet.selections.every((sel) => {
+      // Snapshot each leg's individual win/loss and final score at
+      // settlement time — the matchday this bet belongs to eventually
+      // cycles out of the live queue, so this is the only chance to
+      // capture that detail for the ticket-details view later.
+      const updatedSelections = bet.selections.map((sel) => {
         const result = fixtureResults.get(sel.fixtureId);
-        if (!result) return false;
-        const winners = (result.winningOutcomeIdsByMarket[sel.marketKey] ?? '').split(',');
-        return winners.includes(sel.outcomeId);
+        const winners = (result?.winningOutcomeIdsByMarket[sel.marketKey] ?? '').split(',');
+        return {
+          ...sel,
+          won: result ? winners.includes(sel.outcomeId) : false,
+          finalScore: result ? `${result.homeScore}-${result.awayScore}` : undefined,
+        };
       });
+      const allWon = updatedSelections.every((sel) => sel.won);
 
-      await virtualBetStore.settle(bet.id, allWon ? 'won' : 'lost');
+      await virtualBetStore.settle(bet.id, allWon ? 'won' : 'lost', updatedSelections);
 
       if (allWon) {
         try {
+          // Winnings credit the user's real backend balance exactly once,
+          // here, at the moment of settlement — never client-driven, so
+          // there is no possibility of a page revisit or a duplicate poll
+          // crediting the same win twice.
           await userStore.adjustBalance(bet.userId, bet.potentialWin, true);
+          await transactionStore.create({
+            userId: bet.userId,
+            type: 'winnings',
+            description: `Virtual Football Winnings — Matchday #${bet.matchdayRound}`,
+            amount: bet.potentialWin,
+          });
           await notificationStore.create(
             bet.userId,
             'Virtual Football — Bet Won',
@@ -184,10 +210,20 @@ class VirtualEngine {
     return toPublicMatchday(current);
   }
 
+  // ---- Admin: full lookahead including predetermined results ----
+
   getUpcomingMatchdaysForAdmin(count: number = LOOKAHEAD_COUNT + 1): VirtualMatchday[] {
     return this.queue.slice(0, count);
   }
 
+  /**
+   * Places a bet ticket covering one or more selections. A ticket with more
+   * than one selection is a "multiple"/accumulator: it wins only if every
+   * leg wins, and pays the product of all legs' odds. Every leg's odds are
+   * re-validated against the current matchday's live prices — the client's
+   * numbers are never trusted. Two selections on the same fixture are
+   * rejected (mirrors the real bet slip's one-pick-per-match rule).
+   */
   async placeBet(params: {
     userId: string;
     userLabel: string;
@@ -222,13 +258,22 @@ class VirtualEngine {
         marketTitle: market.title,
         outcomeId: outcome.id,
         outcomeLabel: outcome.label,
-        odds: outcome.odds,
+        odds: outcome.odds, // always the server's current price, never client-supplied
       };
     });
 
     const combinedOdds = selections.reduce((acc, s) => acc * s.odds, 1);
 
+    // Debit the stake from the user's real backend balance now — this
+    // throws (and the whole bet is rejected) if they don't actually have
+    // enough, rather than trusting a client-reported balance.
     await userStore.adjustBalance(params.userId, -params.stake);
+    await transactionStore.create({
+      userId: params.userId,
+      type: 'bet',
+      description: `Virtual Football Bet — Matchday #${current.round}`,
+      amount: -params.stake,
+    });
 
     const bet: VirtualBet = {
       id: `vb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -250,6 +295,10 @@ class VirtualEngine {
 
   async getBetsForUser(userId: string): Promise<VirtualBet[]> {
     return virtualBetStore.getForUser(userId);
+  }
+
+  async getBetById(id: string): Promise<VirtualBet | null> {
+    return virtualBetStore.getById(id);
   }
 
   async getAllBets(): Promise<VirtualBet[]> {

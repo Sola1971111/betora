@@ -14,6 +14,8 @@ import ForgotPassword from './pages/auth/ForgotPassword';
 import Home from './pages/main/Home';
 import Sports from './pages/main/Sports';
 import Virtual from './pages/main/Virtual';
+import VirtualBetHistory from './pages/main/VirtualBetHistory';
+import VirtualTicketDetails from './pages/main/VirtualTicketDetails';
 import AdminVirtual from './pages/admin/AdminVirtual';
 import Competition from './pages/main/Competition';
 import MatchDetail from './pages/main/MatchDetail';
@@ -82,6 +84,10 @@ function AppRoutes() {
         <Route path="/competition/:id" element={<Competition />} />
         <Route path="/match/:id" element={<MatchDetail />} />
         <Route path="/search" element={<Search />} />
+
+        {/* Virtual Football bet history — full-screen with its own back nav */}
+        <Route path="/virtual/history" element={<RequireAuth><VirtualBetHistory /></RequireAuth>} />
+        <Route path="/virtual/history/:id" element={<RequireAuth><VirtualTicketDetails /></RequireAuth>} />
 
         {/* Virtual Football admin — no login wall, per current scope */}
         <Route path="/admin" element={<AdminVirtual />} />

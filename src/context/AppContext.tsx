@@ -4,6 +4,7 @@ import { login as apiLogin, signup as apiSignup, fetchCurrentUser, type AuthUser
 import { requestDeposit as apiRequestDeposit, requestWithdrawal as apiRequestWithdrawal, fetchWalletBalance } from '../services/walletApi';
 import { ApiRequestError } from '../services/oddsApi';
 import { fetchNotifications, markNotificationRead as apiMarkNotificationRead } from '../services/notificationsApi';
+import { fetchTransactions } from '../services/transactionsApi';
 
 interface AppContextValue {
   // Auth (real backend accounts)
@@ -170,6 +171,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setBalance(0);
     setNotifications([]);
+    setTransactions([]);
     seenNotificationIds.current = new Set();
     clearSavedUser();
   }, []);
@@ -223,54 +225,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [isAuthenticated, user, refreshBalance]);
 
+  const refreshTransactions = useCallback(async () => {
+    if (!user) return;
+    try {
+      const fetched = await fetchTransactions(user.id);
+      setTransactions((prev) => {
+        const localOnly = prev.filter((t) => t.id.startsWith('local-'));
+        const merged = [
+          ...localOnly,
+          ...fetched.map((t) => ({
+            id: t.id,
+            type: t.type,
+            method: t.method as CryptoMethod | undefined,
+            description: t.description,
+            date: t.date,
+            amount: t.amount,
+            status: t.status,
+          })),
+        ];
+        return merged.sort((a, b) => (a.date < b.date ? 1 : -1));
+      });
+    } catch {
+      // best-effort — keep showing the last known list if this fails
+    }
+  }, [user]);
+
+  // Polls the real transaction ledger (deposits, withdrawals, virtual bets/
+  // winnings, admin adjustments) so Transaction History reflects what
+  // actually happened server-side, not a locally-guessed log.
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    let cancelled = false;
+
+    const load = async () => {
+      if (cancelled) return;
+      await refreshTransactions();
+    };
+
+    load();
+    const interval = setInterval(load, NOTIFICATIONS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, user, refreshTransactions]);
+
   // Creates a pending deposit request — balance only changes once an admin
-  // approves it (see the "Deposit Successful" notification that triggers then).
+  // approves it. The transaction record itself is created server-side (see
+  // walletRequestStore); this just triggers a refetch so it shows up here.
   const requestDeposit = useCallback(
     async (amount: number, method: CryptoMethod) => {
       if (!user) return { success: false, error: 'Not logged in' };
       try {
         await apiRequestDeposit(user.id, user.fullName, amount, method);
-        setTransactions((t) => [
-          {
-            id: `t-${Date.now()}`,
-            type: 'deposit',
-            method,
-            description: `${method} Deposit — awaiting admin approval`,
-            date: new Date().toISOString(),
-            amount,
-            status: 'pending',
-          },
-          ...t,
-        ]);
+        await refreshTransactions();
         return { success: true };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'Unable to submit deposit request' };
       }
     },
-    [user]
+    [user, refreshTransactions]
   );
 
   // Creates a pending withdrawal request. The server debits the balance
   // immediately (funds held pending review) — rejecting the request later
   // returns those funds automatically, with a notification either way.
+  // The transaction record itself is created server-side.
   const withdraw = useCallback(
     async (amount: number, method: CryptoMethod, address: string) => {
       if (!user) return { success: false, error: 'Not logged in' };
       try {
         const { balance: newBalance } = await apiRequestWithdrawal(user.id, user.fullName, amount, method, address);
         setBalance(newBalance);
-        setTransactions((t) => [
-          {
-            id: `t-${Date.now()}`,
-            type: 'withdrawal',
-            method,
-            description: `${method} Withdrawal — awaiting admin approval`,
-            date: new Date().toISOString(),
-            amount: -amount,
-            status: 'pending',
-          },
-          ...t,
-        ]);
+        await refreshTransactions();
         return { success: true };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'Unable to submit withdrawal request' };
@@ -372,8 +399,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setBets((prev) => [newBet, ...prev]);
       setBalance((b) => b - stake);
+      // Real-sportsbook betting (as opposed to Virtual Football) remains a
+      // client-local demo simulation — its balance was never backend-
+      // authoritative, so logging a real database transaction for it would
+      // misleadingly imply a server-side balance change that never happened.
+      // This entry is local-only and merges alongside the real, fetched
+      // transaction history (see the transactions refresh effect below).
       setTransactions((t) => [
-        { id: `t-${Date.now()}`, type: 'bet', description: `Bet Placed ${newBet.id}`, date: new Date().toISOString(), amount: -stake, status: 'completed' },
+        {
+          id: `local-bet-${Date.now()}`,
+          type: 'bet',
+          description: `Bet Placed ${newBet.id}`,
+          date: new Date().toISOString(),
+          amount: -stake,
+          status: 'completed',
+        },
         ...t,
       ]);
       setSlip([]);

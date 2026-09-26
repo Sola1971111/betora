@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Gamepad2, Clock, Ticket, X, ChevronRight } from 'lucide-react';
 import Badge from '../../components/Badge';
 import Button from '../../components/Button';
@@ -71,6 +72,7 @@ function formatCountdown(seconds: number): string {
 }
 
 export default function Virtual() {
+  const navigate = useNavigate();
   const { isAuthenticated, balance, refreshBalance, user } = useApp();
   const { matchday, loading, error, secondsToKickoff, secondsElapsedInPlay, matchLengthSeconds } = useVirtualMatchday();
   const [activeTab, setActiveTab] = useState<VirtualMarketKey>('h2h');
@@ -229,7 +231,19 @@ export default function Virtual() {
   return (
     <div className="min-h-screen pb-28">
       <div className="px-4 py-3.5">
-        <h1 className="text-page-title-mobile sm:text-page-title mb-3">Virtual Football</h1>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-page-title-mobile sm:text-page-title">Virtual Football</h1>
+          <button
+            onClick={() => navigate('/virtual/history')}
+            aria-label="Bet History"
+            className="relative p-2 -mr-2 rounded-full hover:bg-bg transition-colors duration-150"
+          >
+            <Ticket size={20} className="text-navy" />
+            {pendingBetsCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-error" />
+            )}
+          </button>
+        </div>
         {/* Matchday banner */}
         <div className="relative rounded-card overflow-hidden bg-navy px-4 py-3 mb-3 flex items-center justify-between">
           <div>

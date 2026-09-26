@@ -66,8 +66,16 @@ class VirtualBetStore {
     return result.rows.map(toBet);
   }
 
-  async settle(id: string, status: 'won' | 'lost'): Promise<void> {
-    await pool.query(`UPDATE virtual_bets SET status = $1, settled_at = now() WHERE id = $2`, [status, id]);
+  async settle(id: string, status: 'won' | 'lost', updatedSelections: VirtualBetSelection[]): Promise<void> {
+    await pool.query(
+      `UPDATE virtual_bets SET status = $1, settled_at = now(), selections = $2 WHERE id = $3`,
+      [status, JSON.stringify(updatedSelections), id]
+    );
+  }
+
+  async getById(id: string): Promise<VirtualBet | null> {
+    const result = await pool.query<VirtualBetRow>('SELECT * FROM virtual_bets WHERE id = $1', [id]);
+    return result.rows[0] ? toBet(result.rows[0]) : null;
   }
 
   async getForUser(userId: string): Promise<VirtualBet[]> {

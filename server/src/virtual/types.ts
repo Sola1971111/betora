@@ -72,6 +72,9 @@ export interface VirtualBetSelection {
   outcomeId: string;
   outcomeLabel: string;
   odds: number;
+  // Populated once the matchday settles — undefined while still pending.
+  won?: boolean;
+  finalScore?: string; // e.g. "2-1"
 }
 
 export interface VirtualBet {

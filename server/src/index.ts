@@ -11,6 +11,7 @@ import { userStore } from './users/store.js';
 import { walletRequestStore } from './wallet/store.js';
 import type { CryptoMethod } from './wallet/types.js';
 import { notificationStore } from './notifications/store.js';
+import { transactionStore } from './transactions/store.js';
 import { ensureSchema } from './db/pool.js';
 
 const app = express();
@@ -194,6 +195,20 @@ app.get('/api/virtual/bets', async (req, res) => {
     res.json({ bets: await virtualEngine.getBetsForUser(userId) });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unable to load bets' });
+  }
+});
+
+// GET /api/virtual/bets/:id — a single bet ticket's full detail
+app.get('/api/virtual/bets/:id', async (req, res) => {
+  try {
+    const bet = await virtualEngine.getBetById(req.params.id);
+    if (!bet) {
+      res.status(404).json({ error: 'Bet not found' });
+      return;
+    }
+    res.json({ bet });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unable to load bet' });
   }
 });
 
@@ -401,8 +416,20 @@ app.post('/api/admin/wallet/adjust', express.json(), async (req, res) => {
     const user = await userStore.getById(userId);
     const absAmount = `$${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     if (amount > 0) {
+      await transactionStore.create({
+        userId,
+        type: 'deposit',
+        description: reason ? `Admin Credit — ${reason}` : 'Admin Credit',
+        amount,
+      });
       await notificationStore.create(userId, 'Deposit Successful', `Deposit of ${absAmount} has been added to your balance.`);
     } else {
+      await transactionStore.create({
+        userId,
+        type: 'withdrawal',
+        description: reason ? `Admin Deduction — ${reason}` : 'Admin Deduction',
+        amount,
+      });
       await notificationStore.create(userId, 'Withdrawal Processed', `Withdrawal of ${absAmount} has been deducted from your balance.`);
     }
     // eslint-disable-next-line no-console
@@ -466,6 +493,21 @@ app.post('/api/notifications/:id/read', async (req, res) => {
     res.json({ notification });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unable to update notification' });
+  }
+});
+
+// ---- Transaction history ----
+
+app.get('/api/transactions', async (req, res) => {
+  const userId = String(req.query.userId ?? '');
+  if (!userId) {
+    res.status(400).json({ error: 'Missing userId query parameter' });
+    return;
+  }
+  try {
+    res.json({ transactions: await transactionStore.getForUser(userId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unable to load transactions' });
   }
 });
 

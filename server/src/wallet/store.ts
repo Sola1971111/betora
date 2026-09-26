@@ -2,6 +2,7 @@ import { pool } from '../db/pool.js';
 import type { WalletRequest, WalletRequestType, CryptoMethod } from './types.js';
 import { userStore } from '../users/store.js';
 import { notificationStore } from '../notifications/store.js';
+import { transactionStore } from '../transactions/store.js';
 
 interface WalletRequestRow {
   id: string;
@@ -50,7 +51,19 @@ class WalletRequestStore {
        VALUES ($1, $2, $3, 'deposit', $4, $5) RETURNING *`,
       [id, userId, userLabel, method, amount]
     );
-    return toWalletRequest(result.rows[0]);
+    const request = toWalletRequest(result.rows[0]);
+
+    await transactionStore.create({
+      userId,
+      type: 'deposit',
+      method,
+      description: `${methodLabel[method]} Deposit`,
+      amount,
+      status: 'pending',
+      walletRequestId: request.id,
+    });
+
+    return request;
   }
 
   async createWithdrawal(
@@ -60,7 +73,7 @@ class WalletRequestStore {
     amount: number,
     address: string
   ): Promise<WalletRequest> {
-    await userStore.adjustBalance(userId, -amount, false);
+    await userStore.adjustBalance(userId, -amount, false); // throws on insufficient balance — held pending review
 
     const id = `wr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const result = await pool.query<WalletRequestRow>(
@@ -68,7 +81,19 @@ class WalletRequestStore {
        VALUES ($1, $2, $3, 'withdrawal', $4, $5, $6) RETURNING *`,
       [id, userId, userLabel, method, amount, address]
     );
-    return toWalletRequest(result.rows[0]);
+    const request = toWalletRequest(result.rows[0]);
+
+    await transactionStore.create({
+      userId,
+      type: 'withdrawal',
+      method,
+      description: `${methodLabel[method]} Withdrawal`,
+      amount: -amount,
+      status: 'pending',
+      walletRequestId: request.id,
+    });
+
+    return request;
   }
 
   async approve(id: string): Promise<WalletRequest> {
@@ -85,12 +110,14 @@ class WalletRequestStore {
 
     if (resolved.type === 'deposit') {
       await userStore.adjustBalance(resolved.userId, resolved.amount, true);
+      await transactionStore.updateStatusByWalletRequestId(resolved.id, 'completed');
       await notificationStore.create(
         resolved.userId,
         'Deposit Successful',
         `Deposit of ${formatUsd(resolved.amount)} (${methodLabel[resolved.method]}) has been added to your balance.`
       );
     } else {
+      await transactionStore.updateStatusByWalletRequestId(resolved.id, 'completed');
       await notificationStore.create(
         resolved.userId,
         'Withdrawal Processed',
@@ -113,6 +140,8 @@ class WalletRequestStore {
     );
     const resolved = toWalletRequest(updated.rows[0]);
 
+    await transactionStore.updateStatusByWalletRequestId(resolved.id, 'failed');
+
     if (resolved.type === 'withdrawal') {
       await userStore.adjustBalance(resolved.userId, resolved.amount, true);
       await notificationStore.create(
@@ -121,6 +150,8 @@ class WalletRequestStore {
         `Your ${formatUsd(resolved.amount)} withdrawal request was rejected and the funds have been returned to your balance.`
       );
     }
+    // Rejected deposits get no notification and no balance change — nothing happened.
+    // The transaction row is still marked "failed" so it's visible in history.
 
     return resolved;
   }

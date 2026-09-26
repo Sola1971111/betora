@@ -64,6 +64,8 @@ export interface VirtualBetSelection {
   outcomeId: string;
   outcomeLabel: string;
   odds: number;
+  won?: boolean;
+  finalScore?: string;
 }
 
 export interface VirtualBet {
