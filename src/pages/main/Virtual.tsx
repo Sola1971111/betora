@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Gamepad2, Clock, Ticket, X, ChevronRight } from 'lucide-react';
-import Header from '../../components/Header';
 import Badge from '../../components/Badge';
 import Button from '../../components/Button';
 import BottomSheet from '../../components/BottomSheet';
@@ -202,7 +201,6 @@ export default function Virtual() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen">
-        <Header title="Virtual Football" showBack={false} showBalance={false} showNotifications={false} showSearch={false} />
         <GuestGate
           icon={Gamepad2}
           heading="Log in to play Virtual Football"
@@ -215,7 +213,6 @@ export default function Virtual() {
   if (loading && !matchday) {
     return (
       <div className="min-h-screen">
-        <Header title="Virtual Football" showBack={false} />
         <p className="p-6 text-body text-text-secondary text-center">Loading virtual matchday…</p>
       </div>
     );
@@ -224,7 +221,6 @@ export default function Virtual() {
   if (error || !matchday) {
     return (
       <div className="min-h-screen">
-        <Header title="Virtual Football" showBack={false} />
         <p className="p-6 text-body text-text-secondary text-center">{error ?? 'Unable to load the virtual matchday'}</p>
       </div>
     );
@@ -232,9 +228,8 @@ export default function Virtual() {
 
   return (
     <div className="min-h-screen pb-28">
-      <Header title="Virtual Football" showBack={false} />
-
       <div className="px-4 py-3.5">
+        <h1 className="text-page-title-mobile sm:text-page-title mb-3">Virtual Football</h1>
         {/* Matchday banner */}
         <div className="relative rounded-card overflow-hidden bg-navy px-4 py-3 mb-3 flex items-center justify-between">
           <div>

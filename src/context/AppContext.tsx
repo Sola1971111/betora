@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import type { BetSelection, PlacedBet, Transaction, AppNotification, SavedWithdrawalAddress, CryptoMethod } from '../types';
-import { placedBets as initialBets, transactions as initialTransactions } from '../data/mockData';
 import { login as apiLogin, signup as apiSignup, fetchCurrentUser, type AuthUser } from '../services/authApi';
 import { requestDeposit as apiRequestDeposit, requestWithdrawal as apiRequestWithdrawal, fetchWalletBalance } from '../services/walletApi';
 import { ApiRequestError } from '../services/oddsApi';
@@ -98,8 +97,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [balanceHidden, setBalanceHidden] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<SavedWithdrawalAddress[]>([]);
   const [slip, setSlip] = useState<BetSelection[]>([]);
-  const [bets, setBets] = useState<PlacedBet[]>(initialBets);
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  const [bets, setBets] = useState<PlacedBet[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [appliedPromoCode, setAppliedPromoCode] = useState<string | null>(null);
   const [bookingCodes, setBookingCodes] = useState<Record<string, BetSelection[]>>({});

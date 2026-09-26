@@ -1,5 +1,4 @@
 import { Gift } from 'lucide-react';
-import Header from '../../components/Header';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
 import { promotions } from '../../data/mockData';
@@ -7,8 +6,8 @@ import { promotions } from '../../data/mockData';
 export default function Promotions() {
   return (
     <div className="min-h-screen bg-bg">
-      <Header title="Promotions" showBack showBalance={false} />
       <div className="max-w-app mx-auto px-4 py-5">
+        <h1 className="text-page-title-mobile sm:text-page-title mb-4">Promotions</h1>
         {promotions.length === 0 ? (
           <EmptyState icon={Gift} heading="No promotions right now" message="Check back soon for new offers." />
         ) : (
