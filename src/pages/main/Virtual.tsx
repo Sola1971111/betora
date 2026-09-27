@@ -243,7 +243,8 @@ export default function Virtual() {
   };
 
   const activeMarketDef = useMemo(() => MARKET_TABS.find((m) => m.key === activeTab)!, [activeTab]);
-  const pendingBetsCount = myBets.filter((b) => b.status === 'pending').length;
+  const pendingBets = useMemo(() => myBets.filter((b) => b.status === 'pending'), [myBets]);
+  const pendingBetsCount = pendingBets.length;
   const virtualMinute = Math.min(90, (secondsElapsedInPlay / matchLengthSeconds) * 90);
 
   if (!isAuthenticated) {
@@ -545,23 +546,30 @@ export default function Virtual() {
         )}
       </BottomSheet>
 
-      {/* Open Bets sheet */}
+      {/* Open Bets sheet — pending tickets only; settled ones live in Bet History */}
       <BottomSheet open={openBetsOpen} onClose={() => setOpenBetsOpen(false)} title="Open Bets">
-        {myBets.length === 0 ? (
-          <p className="px-4 pt-2 pb-6 text-secondary-text text-text-secondary text-center">
-            You haven't placed any virtual bets yet.
-          </p>
+        {pendingBets.length === 0 ? (
+          <div className="px-4 pt-2 pb-6 text-center">
+            <p className="text-secondary-text text-text-secondary mb-3">You have no open bets right now.</p>
+            <button
+              onClick={() => {
+                setOpenBetsOpen(false);
+                navigate('/virtual/history');
+              }}
+              className="text-secondary-text font-semibold text-primary"
+            >
+              View Bet History
+            </button>
+          </div>
         ) : (
           <div className="px-4 pt-2 pb-5 divide-y divide-border max-h-[50vh] overflow-y-auto">
-            {myBets.map((bet) => (
+            {pendingBets.map((bet) => (
               <div key={bet.id} className="py-2.5">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-secondary-text font-bold">
                     MD#{bet.matchdayRound} · {bet.type === 'multiple' ? `${bet.selections.length}-Leg Multi` : 'Single'}
                   </p>
-                  <Badge variant={bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'open'}>
-                    {bet.status.toUpperCase()}
-                  </Badge>
+                  <Badge variant="open">PENDING</Badge>
                 </div>
                 {bet.selections.map((sel) => (
                   <p key={`${sel.fixtureId}-${sel.marketKey}`} className="text-micro-text text-text-secondary">
