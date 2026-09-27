@@ -20,12 +20,17 @@ function revealedScore(fixture: VirtualFixture, virtualMinute: number): { home: 
   return { home, away };
 }
 
+type BallState = 'idle' | 'scoring-home' | 'scoring-away';
+
 export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: VirtualLiveStadiumProps) {
   const [featuredId, setFeaturedId] = useState(fixtures[0]?.id ?? '');
   const [showAll, setShowAll] = useState(false);
   const [flashingIds, setFlashingIds] = useState<Set<string>>(new Set());
   const [goalBanner, setGoalBanner] = useState<{ team: 'home' | 'away'; key: number } | null>(null);
+  const [ballState, setBallState] = useState<BallState>('idle');
+  const [showHalfTime, setShowHalfTime] = useState(false);
   const prevScores = useRef<Map<string, { home: number; away: number }>>(new Map());
+  const prevMinute = useRef(0);
 
   useEffect(() => {
     if (!fixtures.some((f) => f.id === featuredId)) {
@@ -34,9 +39,20 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtures]);
 
+  // Half time — a one-shot banner exactly at the moment the featured match
+  // crosses the 45-minute mark, not a persistent label.
+  useEffect(() => {
+    if (prevMinute.current <= 45 && virtualMinute > 45) {
+      setShowHalfTime(true);
+      setTimeout(() => setShowHalfTime(false), 1800);
+    }
+    prevMinute.current = virtualMinute;
+  }, [virtualMinute]);
+
   // Detect goals by comparing each fixture's revealed score against what it
-  // was last tick — whichever fixtures just changed get a brief highlight,
-  // and if it's the featured match, a full "GOAL!" banner on the pitch.
+  // was last tick. Any fixture that just scored gets a brief scoreboard
+  // flash; if it's the featured match, the ball is sent toward the correct
+  // goal mouth and "into the net" before the GOAL banner appears.
   useEffect(() => {
     const newlyScored: { id: string; team: 'home' | 'away' }[] = [];
 
@@ -56,8 +72,16 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
 
       const featuredGoal = newlyScored.find((g) => g.id === featuredId);
       if (featuredGoal) {
-        setGoalBanner({ team: featuredGoal.team, key: Date.now() });
-        setTimeout(() => setGoalBanner(null), 1800);
+        // Home scoring means the ball travels toward the away team's goal
+        // (right side of the pitch), and vice versa.
+        setBallState(featuredGoal.team === 'home' ? 'scoring-home' : 'scoring-away');
+        setTimeout(() => {
+          setGoalBanner({ team: featuredGoal.team, key: Date.now() });
+        }, 700);
+        setTimeout(() => {
+          setBallState('idle');
+          setGoalBanner(null);
+        }, 2400);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -69,6 +93,13 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
 
   if (!featured) return null;
   const featuredScore = revealedScore(featured, virtualMinute);
+
+  const ballAnimationClass =
+    ballState === 'scoring-home'
+      ? 'animate-[ballToAwayGoal_0.9s_ease-in_forwards]'
+      : ballState === 'scoring-away'
+      ? 'animate-[ballToHomeGoal_0.9s_ease-in_forwards]'
+      : 'animate-[pitchBallRoam_4s_ease-in-out_infinite]';
 
   return (
     <div className="mb-3">
@@ -93,6 +124,14 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
         <div className="absolute left-3 top-1/2 w-8 h-16 -mt-8 border-2 border-l-0 border-white/40" />
         <div className="absolute right-3 top-1/2 w-8 h-16 -mt-8 border-2 border-r-0 border-white/40" />
 
+        {/* net flash at the scoring end */}
+        {ballState === 'scoring-home' && (
+          <div className="absolute right-3 top-1/2 w-8 h-16 -mt-8 bg-white animate-[netFlash_0.9s_ease-in-out]" />
+        )}
+        {ballState === 'scoring-away' && (
+          <div className="absolute left-3 top-1/2 w-8 h-16 -mt-8 bg-white animate-[netFlash_0.9s_ease-in-out]" />
+        )}
+
         <div className="absolute top-2.5 left-2.5 bg-navy rounded px-2.5 py-1 flex items-center gap-1.5 z-10">
           <TeamCrest name={featured.homeTeam.name} logoUrl={featured.homeTeam.logoUrl} size={14} />
           <span className="text-micro-text font-bold text-white">{featured.homeTeam.shortName}</span>
@@ -108,16 +147,26 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
         </div>
 
         <div className="absolute left-[38%] top-[35%] w-2.5 h-2.5 rounded-full bg-white/90 animate-[playerRoamA_2.6s_ease-in-out_infinite]" />
-        <div className="absolute left-[55%] top-[30%] w-2.5 h-2.5 rounded-full bg-navy/90 animate-[playerRoamB_2.2s_ease-in-out_infinite]" />
-        <div className="absolute left-[45%] top-[60%] w-2.5 h-2.5 rounded-full bg-white/90 animate-[playerRoamC_2.9s_ease-in-out_infinite]" />
+        <div className="absolute left-[55%] top-[30%] w-2.5 h-2.5 rounded-full bg-navy/90 animate-[playerSurgeRight_3.2s_ease-in-out_infinite]" />
+        <div className="absolute left-[45%] top-[60%] w-2.5 h-2.5 rounded-full bg-white/90 animate-[playerSurgeRight_3.6s_ease-in-out_infinite]" />
         <div className="absolute left-[62%] top-[65%] w-2.5 h-2.5 rounded-full bg-navy/90 animate-[playerRoamA_2.4s_ease-in-out_infinite_reverse]" />
-        <div className="absolute left-[30%] top-[52%] w-2.5 h-2.5 rounded-full bg-navy/90 animate-[playerRoamB_2.8s_ease-in-out_infinite]" />
-        <div className="absolute left-[68%] top-[42%] w-2.5 h-2.5 rounded-full bg-white/90 animate-[playerRoamC_2.3s_ease-in-out_infinite_reverse]" />
+        <div className="absolute left-[30%] top-[52%] w-2.5 h-2.5 rounded-full bg-navy/90 animate-[playerSurgeLeft_3.4s_ease-in-out_infinite]" />
+        <div className="absolute left-[68%] top-[42%] w-2.5 h-2.5 rounded-full bg-white/90 animate-[playerSurgeLeft_2.9s_ease-in-out_infinite]" />
 
         <div
-          className="absolute w-2 h-2 rounded-full bg-white shadow-md animate-[pitchBallRoam_4s_ease-in-out_infinite]"
+          key={ballState}
+          className={`absolute w-2 h-2 rounded-full bg-white shadow-md ${ballAnimationClass}`}
           style={{ marginLeft: '-4px', marginTop: '-4px' }}
         />
+
+        {/* Half time overlay */}
+        {showHalfTime && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/50">
+            <span className="text-page-title font-extrabold text-white tracking-wide animate-[bumpIn_0.4s_ease-out]">
+              HALF TIME
+            </span>
+          </div>
+        )}
 
         {/* Goal celebration overlay */}
         {goalBanner && (

@@ -100,6 +100,32 @@ export default {
           '0%, 100%': { transform: 'translate(0, 0)' },
           '50%': { transform: 'translate(6px, 10px)' },
         },
+        playerSurgeRight: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '35%': { transform: 'translate(18px, -4px)' },
+          '65%': { transform: 'translate(26px, 4px)' },
+        },
+        playerSurgeLeft: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '35%': { transform: 'translate(-18px, 5px)' },
+          '65%': { transform: 'translate(-26px, -3px)' },
+        },
+        ballToAwayGoal: {
+          '0%': { left: '48%', top: '55%', opacity: '1' },
+          '55%': { left: '78%', top: '48%', opacity: '1' },
+          '85%': { left: '90%', top: '50%', opacity: '1' },
+          '100%': { left: '95%', top: '50%', opacity: '0' },
+        },
+        ballToHomeGoal: {
+          '0%': { left: '48%', top: '55%', opacity: '1' },
+          '55%': { left: '20%', top: '48%', opacity: '1' },
+          '85%': { left: '9%', top: '50%', opacity: '1' },
+          '100%': { left: '4%', top: '50%', opacity: '0' },
+        },
+        netFlash: {
+          '0%, 100%': { opacity: '0' },
+          '50%': { opacity: '0.9' },
+        },
       },
     },
   },
