@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, X } from 'lucide-react';
+import { Check, X, Trophy } from 'lucide-react';
 import Header from '../../components/Header';
-import Badge from '../../components/Badge';
 import TeamCrest from '../../components/TeamCrest';
 import { fetchVirtualBetById } from '../../services/virtualApi';
 import { formatUsd } from '../../data/mockData';
@@ -59,49 +58,55 @@ export default function VirtualTicketDetails() {
     <div className="min-h-screen bg-bg">
       <Header title="Ticket Details" showBack showBalance={false} />
 
-      <div className="px-4 py-4">
+      {/* Dark summary card */}
+      <div className="bg-navy px-4 py-4">
         <div className="flex items-start justify-between mb-3">
-          <div>
-            <p className="text-small-text text-text-secondary">
-              Virtual Football Ticket ID: {bet.id.replace('vb-', '').slice(0, 10)}
-            </p>
-            <p className="text-small-text text-text-secondary">
-              {new Date(bet.placedAt).toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' })},{' '}
-              {new Date(bet.placedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}
-            </p>
-          </div>
-          <Badge variant={bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'open'}>
-            {bet.status === 'pending' ? 'UNSETTLED' : bet.status.toUpperCase()}
-          </Badge>
+          <p className="text-small-text text-white/50">
+            Virtual Football Ticket ID: {bet.id.replace('vb-', '').slice(0, 10)}
+          </p>
+          <p className="text-small-text text-white/50 flex-shrink-0">
+            {new Date(bet.placedAt).toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' })},{' '}
+            {new Date(bet.placedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}
+          </p>
         </div>
 
-        <div className="bg-card border border-border rounded-card p-4 mb-4">
-          <p className="text-card-heading mb-3">{bet.type === 'multiple' ? 'Multiple' : 'Single'}</p>
-
-          {isSettled && (
-            <div className="flex items-center justify-between py-1.5">
-              <span className="text-body text-text-secondary">Total Return</span>
-              <span className={`text-body font-bold ${bet.status === 'won' ? 'text-primary' : ''}`}>
-                {formatUsd(bet.status === 'won' ? bet.potentialWin : 0)}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center justify-between py-1.5 border-t border-border">
-            <span className="text-body text-text-secondary">Total Stake</span>
-            <span className="text-body font-semibold">{formatUsd(bet.stake)}</span>
-          </div>
-          <div className="flex items-center justify-between py-1.5 border-t border-border">
-            <span className="text-body text-text-secondary">Total Odds</span>
-            <span className="text-body font-semibold">{bet.combinedOdds.toFixed(2)}</span>
-          </div>
-          {!isSettled && (
-            <div className="flex items-center justify-between py-1.5 border-t border-border">
-              <span className="text-body text-text-secondary">Potential Win</span>
-              <span className="text-body font-semibold text-primary">{formatUsd(bet.potentialWin)}</span>
-            </div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-card-heading text-white">{bet.type === 'multiple' ? 'Multiple' : 'Single'}</span>
+          {isSettled ? (
+            <span className={`flex items-center gap-1.5 text-card-heading font-bold ${bet.status === 'won' ? 'text-primary' : 'text-white/60'}`}>
+              {bet.status === 'won' && <Trophy size={16} />}
+              {bet.status === 'won' ? 'Won' : 'Lost'}
+            </span>
+          ) : (
+            <span className="text-card-heading font-bold text-amber">Unsettled</span>
           )}
         </div>
 
+        {isSettled && (
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-body text-white/50">Total Return</span>
+            <span className={`text-page-title-mobile font-extrabold ${bet.status === 'won' ? 'text-primary' : 'text-white/70'}`}>
+              {formatUsd(bet.status === 'won' ? bet.potentialWin : 0)}
+            </span>
+          </div>
+        )}
+        <div className="flex items-center justify-between py-1.5 border-t border-white/10">
+          <span className="text-body text-white/50">Total Stake</span>
+          <span className="text-body font-semibold text-white">{formatUsd(bet.stake)}</span>
+        </div>
+        <div className="flex items-center justify-between py-1.5 border-t border-white/10">
+          <span className="text-body text-white/50">Total Odds</span>
+          <span className="text-body font-semibold text-white">{bet.combinedOdds.toFixed(2)}</span>
+        </div>
+        {!isSettled && (
+          <div className="flex items-center justify-between py-1.5 border-t border-white/10">
+            <span className="text-body text-white/50">Potential Win</span>
+            <span className="text-body font-semibold text-primary">{formatUsd(bet.potentialWin)}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-4">
         <div className="space-y-3">
           {bet.selections.map((sel) => (
             <div key={`${sel.fixtureId}-${sel.marketKey}`} className="flex gap-3">
@@ -127,19 +132,29 @@ export default function VirtualTicketDetails() {
                   <span className="text-card-heading truncate">{sel.awayTeam}</span>
                   <TeamCrest name={sel.awayTeam} size={15} />
                 </div>
-                <p className="text-micro-text text-text-secondary mb-2">Virtual EPL</p>
+
+                {sel.htScore && sel.finalScore ? (
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <span className="text-micro-text bg-card border border-border rounded-full px-2 py-0.5 text-text-secondary">
+                      HT {sel.htScore}
+                    </span>
+                    <span className="text-micro-text bg-card border border-border rounded-full px-2 py-0.5 text-text-secondary">
+                      FT {sel.finalScore}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-micro-text text-text-secondary mb-2">Virtual EPL</p>
+                )}
 
                 <div
-                  className={`rounded-card p-3 ${
-                    sel.won === true ? 'bg-primary-light' : sel.won === false ? 'bg-error/10' : 'bg-card border border-border'
+                  className={`rounded-card p-3 border ${
+                    sel.won === true
+                      ? 'bg-primary-light border-primary/30'
+                      : sel.won === false
+                      ? 'bg-bg border-border'
+                      : 'bg-card border-border'
                   }`}
                 >
-                  {sel.finalScore && (
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-small-text text-text-secondary">Final Score</span>
-                      <span className="text-secondary-text font-bold">{sel.finalScore}</span>
-                    </div>
-                  )}
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-small-text text-text-secondary">Pick</span>
                     <span className="text-secondary-text font-semibold">
@@ -152,7 +167,9 @@ export default function VirtualTicketDetails() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-small-text text-text-secondary">Outcome</span>
-                    <span className="text-secondary-text font-semibold">{sel.outcomeLabel}</span>
+                    <span className="text-secondary-text font-semibold">
+                      {sel.actualOutcomeLabel ?? (sel.won === undefined ? '—' : sel.outcomeLabel)}
+                    </span>
                   </div>
                 </div>
               </div>

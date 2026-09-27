@@ -6,14 +6,15 @@ import Button from '../../components/Button';
 import BottomSheet from '../../components/BottomSheet';
 import TeamCrest from '../../components/TeamCrest';
 import VirtualOddsCell from '../../components/VirtualOddsCell';
-import VirtualSimulatingBanner from '../../components/VirtualSimulatingBanner';
+import VirtualLiveStadium from '../../components/VirtualLiveStadium';
+import VirtualUpcomingAccordion from '../../components/VirtualUpcomingAccordion';
 import VirtualFixtureDetail from '../../components/VirtualFixtureDetail';
 import GuestGate from '../../components/GuestGate';
 import { useApp } from '../../context/AppContext';
 import { useVirtualMatchday } from '../../hooks/useVirtualMatchday';
-import { placeVirtualBet, fetchVirtualBetHistory } from '../../services/virtualApi';
+import { placeVirtualBet, fetchVirtualBetHistory, fetchUpcomingMatchdays } from '../../services/virtualApi';
 import { formatUsd } from '../../data/mockData';
-import type { VirtualBet, VirtualFixture, VirtualMarket, VirtualMarketKey } from '../../types/virtual';
+import type { VirtualBet, VirtualFixture, VirtualMarket, VirtualMarketKey, VirtualUpcomingPreview } from '../../types/virtual';
 
 const quickStakes = [5, 10, 25, 50];
 
@@ -85,6 +86,7 @@ export default function Virtual() {
   const [openBetsOpen, setOpenBetsOpen] = useState(false);
   const [detailFixture, setDetailFixture] = useState<VirtualFixture | null>(null);
   const [myBets, setMyBets] = useState<VirtualBet[]>([]);
+  const [upcoming, setUpcoming] = useState<VirtualUpcomingPreview[]>([]);
   const seenSettledBetIds = useRef<Set<string>>(new Set());
   const lastMatchdayIdRef = useRef<string | null>(null);
 
@@ -98,6 +100,26 @@ export default function Virtual() {
     }
     if (matchday) lastMatchdayIdRef.current = matchday.id;
   }, [matchday]);
+
+  // Preview of the next couple of matchdays — fixtures/odds only, never
+  // results, so it's safe to show even though those rounds aren't live yet.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const fetched = await fetchUpcomingMatchdays(2);
+        if (!cancelled) setUpcoming(fetched);
+      } catch {
+        // best-effort — keep showing whatever was last loaded
+      }
+    };
+    load();
+    const interval = setInterval(load, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Poll bet history purely for display, and refresh the (backend-authoritative)
   // balance whenever a bet is first seen as settled. Crediting itself always
@@ -263,27 +285,27 @@ export default function Virtual() {
         </div>
 
         {matchday.phase === 'in_play' && (
-          <VirtualSimulatingBanner fixtures={matchday.fixtures} virtualMinute={virtualMinute} />
+          <VirtualLiveStadium fixtures={matchday.fixtures} round={matchday.round} virtualMinute={virtualMinute} />
         )}
+
+        {/* Market tabs — always visible, drives both the current matchday's
+            table below (when betting is open) and the upcoming preview. */}
+        <div className="flex gap-4 border-b border-border mb-1 overflow-x-auto no-scrollbar">
+          {MARKET_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-shrink-0 pb-2.5 pt-1 text-secondary-text font-bold border-b-2 transition-colors duration-150 whitespace-nowrap ${
+                activeTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-text-secondary'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
         {isBetting && (
           <>
-            {/* Market tabs */}
-            <div className="flex gap-4 border-b border-border mb-1 overflow-x-auto no-scrollbar">
-              {MARKET_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`flex-shrink-0 pb-2.5 pt-1 text-secondary-text font-bold border-b-2 transition-colors duration-150 whitespace-nowrap ${
-                    activeTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-text-secondary'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Column headers */}
             <div className="flex items-center gap-1.5 py-2">
               <div className="flex-1" />
               <div className="flex gap-1.5" style={{ width: activeMarketDef.columns.length * 68 }}>
@@ -344,6 +366,13 @@ export default function Virtual() {
               })}
             </div>
           </>
+        )}
+
+        {upcoming.length > 0 && (
+          <div className="mt-4">
+            <h2 className="text-card-heading mb-2">Coming Up</h2>
+            <VirtualUpcomingAccordion matchdays={upcoming} activeTab={activeTab} columns={activeMarketDef.columns} />
+          </div>
         )}
       </div>
 

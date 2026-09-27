@@ -75,6 +75,8 @@ export interface VirtualBetSelection {
   // Populated once the matchday settles — undefined while still pending.
   won?: boolean;
   finalScore?: string; // e.g. "2-1"
+  htScore?: string; // e.g. "1-1"
+  actualOutcomeLabel?: string; // what actually happened for this market — may differ from the pick when lost
 }
 
 export interface VirtualBet {

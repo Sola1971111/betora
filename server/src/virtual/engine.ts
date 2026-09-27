@@ -58,6 +58,33 @@ function stripResult(fixture: VirtualFixture): PublicVirtualFixture {
   return rest;
 }
 
+/** What actually happened for a given market, in the same label style as
+ * the pick itself — used so a lost leg shows the real outcome rather than
+ * just echoing back the (wrong) pick. */
+function actualOutcomeLabelFor(fixture: VirtualFixture, marketKey: string): string | undefined {
+  const result = fixture.result;
+  if (marketKey === 'double_chance') {
+    // Double chance's own labels (1X/12/X2) don't describe a single result
+    // cleanly — show the real underlying match result instead.
+    if (result.homeScore > result.awayScore) return 'Home Win';
+    if (result.awayScore > result.homeScore) return 'Away Win';
+    return 'Draw';
+  }
+  const market = fixture.markets.find((m) => m.key === marketKey);
+  const winnerIds = (result.winningOutcomeIdsByMarket[marketKey] ?? '').split(',');
+  const winnerId = winnerIds[0];
+  return market?.outcomes.find((o) => o.id === winnerId)?.label ?? winnerId;
+}
+
+/** Score at the 45-minute mark, derived from the goal timeline. */
+function halfTimeScoreFor(fixture: VirtualFixture): string {
+  const events = fixture.result.goalEvents;
+  const atHalf = [...events].filter((e) => e.minute <= 45).sort((a, b) => a.minute - b.minute);
+  const home = atHalf.filter((e) => e.team === 'home').length;
+  const away = atHalf.filter((e) => e.team === 'away').length;
+  return `${home}-${away}`;
+}
+
 function toPublicMatchday(matchday: VirtualMatchday): PublicVirtualMatchday {
   const revealResults = matchday.phase !== 'betting';
   return {
@@ -158,21 +185,25 @@ class VirtualEngine {
   }
 
   private async settleBetsForMatchday(matchday: VirtualMatchday) {
-    const fixtureResults = new Map(matchday.fixtures.map((f) => [f.id, f.result]));
+    const fixturesById = new Map(matchday.fixtures.map((f) => [f.id, f]));
     const pendingBets = await virtualBetStore.getPendingForMatchday(matchday.id);
 
     for (const bet of pendingBets) {
-      // Snapshot each leg's individual win/loss and final score at
-      // settlement time — the matchday this bet belongs to eventually
-      // cycles out of the live queue, so this is the only chance to
-      // capture that detail for the ticket-details view later.
+      // Snapshot each leg's individual win/loss, final/half-time score, and
+      // the real outcome at settlement time — the matchday this bet
+      // belongs to eventually cycles out of the live queue, so this is the
+      // only chance to capture that detail for the ticket-details view later.
       const updatedSelections = bet.selections.map((sel) => {
-        const result = fixtureResults.get(sel.fixtureId);
-        const winners = (result?.winningOutcomeIdsByMarket[sel.marketKey] ?? '').split(',');
+        const fixture = fixturesById.get(sel.fixtureId);
+        if (!fixture) return { ...sel, won: false };
+        const result = fixture.result;
+        const winners = (result.winningOutcomeIdsByMarket[sel.marketKey] ?? '').split(',');
         return {
           ...sel,
-          won: result ? winners.includes(sel.outcomeId) : false,
-          finalScore: result ? `${result.homeScore}-${result.awayScore}` : undefined,
+          won: winners.includes(sel.outcomeId),
+          finalScore: `${result.homeScore}-${result.awayScore}`,
+          htScore: halfTimeScoreFor(fixture),
+          actualOutcomeLabel: actualOutcomeLabelFor(fixture, sel.marketKey),
         };
       });
       const allWon = updatedSelections.every((sel) => sel.won);
@@ -208,6 +239,27 @@ class VirtualEngine {
     const current = this.queue[0];
     if (!current) throw new Error('Virtual engine not started');
     return toPublicMatchday(current);
+  }
+
+  /**
+   * A safe, public preview of the next few queued matchdays: fixtures and
+   * odds only, never results — those stay hidden until each matchday
+   * actually settles. Lets the UI show "what's coming up" without
+   * revealing anything that would affect betting integrity. Start times
+   * are projected by chaining forward from the current matchday's own
+   * (real) next-cycle time, since queued-but-not-yet-active matchdays
+   * don't get real timestamps until they actually go live.
+   */
+  getUpcomingPreview(count = 2): { round: number; projectedStartAt: string; fixtures: PublicVirtualFixture[] }[] {
+    const current = this.queue[0];
+    if (!current) return [];
+    const baseline = new Date(current.nextCycleAt).getTime();
+
+    return this.queue.slice(1, 1 + count).map((matchday, i) => ({
+      round: matchday.round,
+      projectedStartAt: new Date(baseline + i * virtualConfig.cycleSeconds * 1000).toISOString(),
+      fixtures: matchday.fixtures.map(stripResult),
+    }));
   }
 
   // ---- Admin: full lookahead including predetermined results ----

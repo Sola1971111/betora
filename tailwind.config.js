@@ -80,6 +80,26 @@ export default {
           '0%, 100%': { transform: 'scaleX(1)', opacity: '0.3' },
           '50%': { transform: 'scaleX(0.6)', opacity: '0.15' },
         },
+        pitchBallRoam: {
+          '0%': { left: '48%', top: '55%' },
+          '20%': { left: '62%', top: '40%' },
+          '40%': { left: '35%', top: '35%' },
+          '60%': { left: '55%', top: '65%' },
+          '80%': { left: '70%', top: '50%' },
+          '100%': { left: '48%', top: '55%' },
+        },
+        playerRoamA: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '50%': { transform: 'translate(10px, -8px)' },
+        },
+        playerRoamB: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '50%': { transform: 'translate(-12px, 6px)' },
+        },
+        playerRoamC: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '50%': { transform: 'translate(6px, 10px)' },
+        },
       },
     },
   },

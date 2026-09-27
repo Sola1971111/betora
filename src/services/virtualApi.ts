@@ -1,5 +1,5 @@
 import { BASE_URL, ApiRequestError, postRequest } from './oddsApi';
-import type { VirtualBet, VirtualMatchday, VirtualUserSummary } from '../types/virtual';
+import type { VirtualBet, VirtualMatchday, VirtualUserSummary, VirtualUpcomingPreview } from '../types/virtual';
 
 const REQUEST_TIMEOUT_MS = 10000;
 
@@ -31,6 +31,11 @@ async function get<T>(path: string): Promise<T> {
 export async function fetchCurrentMatchday(): Promise<VirtualMatchday> {
   const data = await get<{ matchday: VirtualMatchday }>('/api/virtual/current');
   return data.matchday;
+}
+
+export async function fetchUpcomingMatchdays(count = 2): Promise<VirtualUpcomingPreview[]> {
+  const data = await get<{ matchdays: VirtualUpcomingPreview[] }>(`/api/virtual/upcoming?count=${count}`);
+  return data.matchdays;
 }
 
 export interface PlaceVirtualBetParams {

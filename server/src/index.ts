@@ -146,6 +146,17 @@ app.get('/api/virtual/current', (_req, res) => {
   }
 });
 
+// GET /api/virtual/upcoming — preview of the next matchdays (fixtures/odds
+// only, never results) so the UI can show what's coming up next.
+app.get('/api/virtual/upcoming', (req, res) => {
+  const count = Math.max(1, Math.min(5, Number(req.query.count) || 2));
+  try {
+    res.json({ matchdays: virtualEngine.getUpcomingPreview(count) });
+  } catch {
+    res.status(503).json({ error: 'Virtual engine not ready' });
+  }
+});
+
 // POST /api/virtual/bets — place a bet ticket (one or more picks) on the current matchday
 // body: { userId, userLabel, stake, picks: [{ fixtureId, marketKey, outcomeId }, ...] }
 app.post('/api/virtual/bets', express.json(), async (req, res) => {

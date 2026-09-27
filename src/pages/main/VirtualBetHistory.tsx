@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Ticket, Trophy } from 'lucide-react';
+import { Ticket, Trophy, Gamepad2, ChevronRight } from 'lucide-react';
 import Header from '../../components/Header';
-import Badge from '../../components/Badge';
 import EmptyState from '../../components/EmptyState';
 import GuestGate from '../../components/GuestGate';
 import { useApp } from '../../context/AppContext';
@@ -115,47 +114,61 @@ export default function VirtualBetHistory() {
               <div key={group.label}>
                 <p className="text-secondary-text font-bold text-text-secondary mb-2">{group.label}</p>
                 <div className="space-y-2.5">
-                  {group.bets.map((bet) => (
-                    <button
-                      key={bet.id}
-                      onClick={() => navigate(`/virtual/history/${bet.id}`)}
-                      className="w-full text-left bg-card border border-border rounded-card p-3"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="flex items-center gap-1.5 text-secondary-text font-bold">
-                          {bet.status === 'won' && <Trophy size={13} className="text-primary" />}
-                          {bet.type === 'multiple' ? 'Multiple' : 'Single'}
-                        </span>
-                        <Badge variant={bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'open'}>
-                          {bet.status === 'pending' ? 'UNSETTLED' : bet.status.toUpperCase()}
-                        </Badge>
-                      </div>
+                  {group.bets.map((bet) => {
+                    const headerBg =
+                      bet.status === 'won' ? 'bg-primary' : bet.status === 'lost' ? 'bg-slate-400' : 'bg-amber';
+                    return (
+                      <button
+                        key={bet.id}
+                        onClick={() => navigate(`/virtual/history/${bet.id}`)}
+                        className="w-full text-left bg-card border border-border rounded-card overflow-hidden"
+                      >
+                        <div className={`flex items-center justify-between px-3.5 py-2.5 ${headerBg}`}>
+                          <span className="flex items-center gap-1.5 text-body font-bold text-white">
+                            <Gamepad2 size={15} />
+                            {bet.type === 'multiple' ? 'Multiple' : 'Single'}
+                          </span>
+                          <span className="flex items-center gap-1 text-body font-bold text-white">
+                            {bet.status === 'won' && <Trophy size={15} />}
+                            {bet.status === 'pending' ? 'Unsettled' : bet.status === 'won' ? 'Won' : 'Lost'}
+                            <ChevronRight size={16} />
+                          </span>
+                        </div>
 
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-secondary-text text-text-secondary">Total Return</span>
-                        <span className={`text-body font-bold ${bet.status === 'won' ? 'text-primary' : ''}`}>
-                          {formatUsd(bet.status === 'won' ? bet.potentialWin : 0)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b border-border">
-                        <span className="text-secondary-text text-text-secondary">Total Stake</span>
-                        <span className="text-secondary-text font-semibold">{formatUsd(bet.stake)}</span>
-                      </div>
+                        <div className="px-3.5 py-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-secondary-text text-text-secondary">Total Return</span>
+                            <span
+                              className={
+                                bet.status === 'won'
+                                  ? 'text-page-title-mobile font-extrabold text-primary'
+                                  : 'text-body font-bold text-text-secondary'
+                              }
+                            >
+                              {formatUsd(bet.status === 'won' ? bet.potentialWin : 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between mb-2.5 pb-2.5 border-b border-border">
+                            <span className="text-secondary-text text-text-secondary">Total Stake</span>
+                            <span className="text-secondary-text font-semibold">{formatUsd(bet.stake)}</span>
+                          </div>
 
-                      <div className="space-y-0.5">
-                        {bet.selections.slice(0, 3).map((s) => (
-                          <p key={`${s.fixtureId}-${s.marketKey}`} className="text-small-text text-text-secondary truncate">
-                            {s.homeTeam} vs {s.awayTeam}
-                          </p>
-                        ))}
-                        {bet.selections.length > 3 && (
-                          <p className="text-small-text text-text-secondary">
-                            … (and {bet.selections.length - 3} other match{bet.selections.length - 3 > 1 ? 'es' : ''})
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                          <div className="space-y-0.5">
+                            {bet.selections.slice(0, 3).map((s) => (
+                              <p key={`${s.fixtureId}-${s.marketKey}`} className="text-small-text text-text-secondary truncate">
+                                {s.homeTeam} vs {s.awayTeam}
+                              </p>
+                            ))}
+                            {bet.selections.length > 3 && (
+                              <p className="text-small-text text-text-secondary">
+                                … (and {bet.selections.length - 3} other match{bet.selections.length - 3 > 1 ? 'es' : ''})
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}

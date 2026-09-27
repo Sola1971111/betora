@@ -55,6 +55,12 @@ export interface VirtualMatchday {
   fixtures: VirtualFixture[];
 }
 
+export interface VirtualUpcomingPreview {
+  round: number;
+  projectedStartAt: string;
+  fixtures: VirtualFixture[]; // never includes `result`
+}
+
 export interface VirtualBetSelection {
   fixtureId: string;
   homeTeam: string;
@@ -66,6 +72,8 @@ export interface VirtualBetSelection {
   odds: number;
   won?: boolean;
   finalScore?: string;
+  htScore?: string;
+  actualOutcomeLabel?: string;
 }
 
 export interface VirtualBet {
