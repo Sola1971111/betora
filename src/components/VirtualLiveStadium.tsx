@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import TeamCrest from './TeamCrest';
 import type { VirtualFixture } from '../types/virtual';
 
@@ -23,6 +23,9 @@ function revealedScore(fixture: VirtualFixture, virtualMinute: number): { home: 
 export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: VirtualLiveStadiumProps) {
   const [featuredId, setFeaturedId] = useState(fixtures[0]?.id ?? '');
   const [showAll, setShowAll] = useState(false);
+  const [flashingIds, setFlashingIds] = useState<Set<string>>(new Set());
+  const [goalBanner, setGoalBanner] = useState<{ team: 'home' | 'away'; key: number } | null>(null);
+  const prevScores = useRef<Map<string, { home: number; away: number }>>(new Map());
 
   useEffect(() => {
     if (!fixtures.some((f) => f.id === featuredId)) {
@@ -31,11 +34,41 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtures]);
 
+  // Detect goals by comparing each fixture's revealed score against what it
+  // was last tick — whichever fixtures just changed get a brief highlight,
+  // and if it's the featured match, a full "GOAL!" banner on the pitch.
+  useEffect(() => {
+    const newlyScored: { id: string; team: 'home' | 'away' }[] = [];
+
+    for (const f of fixtures) {
+      const score = revealedScore(f, virtualMinute);
+      const prev = prevScores.current.get(f.id);
+      if (prev) {
+        if (score.home > prev.home) newlyScored.push({ id: f.id, team: 'home' });
+        if (score.away > prev.away) newlyScored.push({ id: f.id, team: 'away' });
+      }
+      prevScores.current.set(f.id, score);
+    }
+
+    if (newlyScored.length > 0) {
+      setFlashingIds(new Set(newlyScored.map((g) => g.id)));
+      setTimeout(() => setFlashingIds(new Set()), 1500);
+
+      const featuredGoal = newlyScored.find((g) => g.id === featuredId);
+      if (featuredGoal) {
+        setGoalBanner({ team: featuredGoal.team, key: Date.now() });
+        setTimeout(() => setGoalBanner(null), 1800);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualMinute, fixtures]);
+
   const featured = fixtures.find((f) => f.id === featuredId) ?? fixtures[0];
   const half = virtualMinute <= 45 ? '1st Half' : '2nd Half';
   const visibleFixtures = useMemo(() => (showAll ? fixtures : fixtures.slice(0, 6)), [fixtures, showAll]);
 
   if (!featured) return null;
+  const featuredScore = revealedScore(featured, virtualMinute);
 
   return (
     <div className="mb-3">
@@ -64,6 +97,11 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
           <TeamCrest name={featured.homeTeam.name} logoUrl={featured.homeTeam.logoUrl} size={14} />
           <span className="text-micro-text font-bold text-white">{featured.homeTeam.shortName}</span>
         </div>
+        <div className="absolute top-2.5 left-1/2 -translate-x-1/2 bg-black/50 rounded px-2 py-0.5 z-10">
+          <span className="text-micro-text font-bold text-white tabular-nums">
+            {featuredScore.home}-{featuredScore.away}
+          </span>
+        </div>
         <div className="absolute top-2.5 right-2.5 bg-primary rounded px-2.5 py-1 flex items-center gap-1.5 z-10">
           <span className="text-micro-text font-bold text-white">{featured.awayTeam.shortName}</span>
           <TeamCrest name={featured.awayTeam.name} logoUrl={featured.awayTeam.logoUrl} size={14} />
@@ -80,6 +118,22 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
           className="absolute w-2 h-2 rounded-full bg-white shadow-md animate-[pitchBallRoam_4s_ease-in-out_infinite]"
           style={{ marginLeft: '-4px', marginTop: '-4px' }}
         />
+
+        {/* Goal celebration overlay */}
+        {goalBanner && (
+          <div
+            key={goalBanner.key}
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40"
+          >
+            <span className="text-4xl mb-1 animate-[bumpIn_0.4s_ease-out]">⚽</span>
+            <span className="text-page-title font-extrabold text-white tracking-wide animate-[bumpIn_0.4s_ease-out]">
+              GOAL!
+            </span>
+            <span className="text-secondary-text font-semibold text-white/80">
+              {goalBanner.team === 'home' ? featured.homeTeam.shortName : featured.awayTeam.shortName}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* live score grid */}
@@ -88,12 +142,17 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
           {visibleFixtures.map((f) => {
             const score = revealedScore(f, virtualMinute);
             const isFeatured = f.id === featured.id;
+            const isFlashing = flashingIds.has(f.id);
             return (
               <button
                 key={f.id}
                 onClick={() => setFeaturedId(f.id)}
-                className={`flex items-center justify-between px-2 py-1.5 rounded border text-left transition-colors duration-150 ${
-                  isFeatured ? 'border-primary bg-primary-light' : 'border-border bg-card'
+                className={`flex items-center justify-between px-2 py-1.5 rounded border text-left transition-colors duration-500 ${
+                  isFlashing
+                    ? 'border-primary bg-primary/25'
+                    : isFeatured
+                    ? 'border-primary bg-primary-light'
+                    : 'border-border bg-card'
                 }`}
               >
                 <span className="flex items-center gap-1 min-w-0">
@@ -101,6 +160,7 @@ export default function VirtualLiveStadium({ fixtures, round, virtualMinute }: V
                   <span className="text-micro-text font-semibold truncate">{f.homeTeam.shortName}</span>
                 </span>
                 <span className="text-micro-text font-bold tabular-nums px-1">
+                  {isFlashing && '⚽ '}
                   {score.home}-{score.away}
                 </span>
                 <span className="flex items-center gap-1 min-w-0 justify-end">

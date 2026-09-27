@@ -42,6 +42,7 @@ export interface PlaceVirtualBetParams {
   userId: string;
   userLabel: string;
   stake: number;
+  matchdayId: string;
   picks: { fixtureId: string; marketKey: string; outcomeId: string }[];
 }
 

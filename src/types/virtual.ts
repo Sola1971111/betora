@@ -57,6 +57,7 @@ export interface VirtualMatchday {
 
 export interface VirtualUpcomingPreview {
   round: number;
+  matchdayId: string;
   projectedStartAt: string;
   fixtures: VirtualFixture[]; // never includes `result`
 }

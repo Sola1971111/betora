@@ -160,7 +160,7 @@ app.get('/api/virtual/upcoming', (req, res) => {
 // POST /api/virtual/bets — place a bet ticket (one or more picks) on the current matchday
 // body: { userId, userLabel, stake, picks: [{ fixtureId, marketKey, outcomeId }, ...] }
 app.post('/api/virtual/bets', express.json(), async (req, res) => {
-  const { userId, userLabel, stake, picks } = req.body ?? {};
+  const { userId, userLabel, stake, matchdayId, picks } = req.body ?? {};
 
   if (typeof userId !== 'string' || !userId) {
     res.status(400).json({ error: 'Missing userId' });
@@ -168,6 +168,10 @@ app.post('/api/virtual/bets', express.json(), async (req, res) => {
   }
   if (typeof stake !== 'number' || !Number.isFinite(stake) || stake <= 0) {
     res.status(400).json({ error: 'Invalid stake' });
+    return;
+  }
+  if (typeof matchdayId !== 'string' || !matchdayId) {
+    res.status(400).json({ error: 'Missing matchdayId' });
     return;
   }
   if (!Array.isArray(picks) || picks.length === 0) {
@@ -187,6 +191,7 @@ app.post('/api/virtual/bets', express.json(), async (req, res) => {
       userId,
       userLabel: typeof userLabel === 'string' && userLabel ? userLabel : userId,
       stake,
+      matchdayId,
       picks,
     });
     res.json({ bet });

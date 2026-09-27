@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Check, X, Trophy } from 'lucide-react';
 import Header from '../../components/Header';
-import TeamCrest from '../../components/TeamCrest';
 import { fetchVirtualBetById } from '../../services/virtualApi';
 import { formatUsd } from '../../data/mockData';
 import type { VirtualBet } from '../../types/virtual';
@@ -126,11 +125,9 @@ export default function VirtualTicketDetails() {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <TeamCrest name={sel.homeTeam} size={15} />
                   <span className="text-card-heading truncate">{sel.homeTeam}</span>
                   <span className="text-small-text text-text-secondary flex-shrink-0">vs</span>
                   <span className="text-card-heading truncate">{sel.awayTeam}</span>
-                  <TeamCrest name={sel.awayTeam} size={15} />
                 </div>
 
                 {sel.htScore && sel.finalScore ? (

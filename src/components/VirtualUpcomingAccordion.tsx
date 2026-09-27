@@ -2,17 +2,26 @@ import { useEffect, useState } from 'react';
 import { ChevronUp, ChevronDown, Clock } from 'lucide-react';
 import TeamCrest from './TeamCrest';
 import VirtualOddsCell from './VirtualOddsCell';
-import type { VirtualMarketKey, VirtualUpcomingPreview } from '../types/virtual';
+import type { VirtualFixture, VirtualMarket, VirtualMarketKey, VirtualUpcomingPreview } from '../types/virtual';
 
 interface MarketColumn {
   outcomeId: string;
   header: string;
 }
 
+interface SelectedPick {
+  matchdayId: string;
+  fixtureId: string;
+  marketKey: string;
+  outcomeId: string;
+}
+
 interface VirtualUpcomingAccordionProps {
   matchdays: VirtualUpcomingPreview[];
   activeTab: VirtualMarketKey;
   columns: MarketColumn[];
+  selections: SelectedPick[];
+  onToggle: (matchdayId: string, fixture: VirtualFixture, market: VirtualMarket, outcomeId: string, outcomeLabel: string, odds: number) => void;
 }
 
 function formatCountdown(ms: number): string {
@@ -22,7 +31,13 @@ function formatCountdown(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default function VirtualUpcomingAccordion({ matchdays, activeTab, columns }: VirtualUpcomingAccordionProps) {
+export default function VirtualUpcomingAccordion({
+  matchdays,
+  activeTab,
+  columns,
+  selections,
+  onToggle,
+}: VirtualUpcomingAccordionProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [now, setNow] = useState(Date.now());
 
@@ -31,7 +46,7 @@ export default function VirtualUpcomingAccordion({ matchdays, activeTab, columns
     return () => clearInterval(interval);
   }, []);
 
-  const toggle = (round: number) => {
+  const toggleCollapse = (round: number) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(round)) next.delete(round);
@@ -50,7 +65,7 @@ export default function VirtualUpcomingAccordion({ matchdays, activeTab, columns
         return (
           <div key={md.round} className="bg-card border border-border rounded-card overflow-hidden">
             <button
-              onClick={() => toggle(md.round)}
+              onClick={() => toggleCollapse(md.round)}
               className="w-full flex items-center justify-between px-3.5 py-2.5 bg-bg"
             >
               <span className="text-secondary-text font-bold">Matchday #{md.round}</span>
@@ -74,7 +89,7 @@ export default function VirtualUpcomingAccordion({ matchdays, activeTab, columns
                 {md.fixtures.map((fixture) => {
                   const market = fixture.markets.find((m) => m.key === activeTab);
                   return (
-                    <div key={fixture.id} className="flex items-center gap-1.5 px-3 py-2.5 opacity-70">
+                    <div key={fixture.id} className="flex items-center gap-1.5 px-3 py-2.5">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-1">
                           <TeamCrest name={fixture.homeTeam.name} logoUrl={fixture.homeTeam.logoUrl} size={14} />
@@ -88,7 +103,20 @@ export default function VirtualUpcomingAccordion({ matchdays, activeTab, columns
                       <div className="flex gap-1.5 flex-shrink-0" style={{ width: columns.length * 68 }}>
                         {columns.map((col) => {
                           const outcome = market?.outcomes.find((o) => o.id === col.outcomeId);
-                          return <VirtualOddsCell key={col.outcomeId} odds={outcome?.odds ?? null} disabled />;
+                          const isSelected = selections.some(
+                            (s) =>
+                              s.matchdayId === md.matchdayId && s.fixtureId === fixture.id && s.marketKey === activeTab && s.outcomeId === col.outcomeId
+                          );
+                          return (
+                            <VirtualOddsCell
+                              key={col.outcomeId}
+                              odds={outcome?.odds ?? null}
+                              selected={isSelected}
+                              onClick={() =>
+                                market && outcome && onToggle(md.matchdayId, fixture, market, outcome.id, outcome.label, outcome.odds)
+                              }
+                            />
+                          );
                         })}
                       </div>
                     </div>

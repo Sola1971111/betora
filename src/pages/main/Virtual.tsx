@@ -56,6 +56,8 @@ const MARKET_TABS: { key: VirtualMarketKey; label: string; columns: { outcomeId:
 ];
 
 interface Selection {
+  matchdayId: string;
+  matchdayRound: number;
   fixtureId: string;
   homeTeam: string;
   awayTeam: string;
@@ -154,6 +156,13 @@ export default function Virtual() {
   }, [isAuthenticated, userId, refreshBalance]);
 
   const isBetting = matchday?.phase === 'betting';
+  const selectionsMatchdayId = selections[0]?.matchdayId;
+  const selectionsMatchdayOpen =
+    selections.length === 0
+      ? false
+      : selectionsMatchdayId === matchday?.id
+      ? isBetting
+      : upcoming.some((u) => u.matchdayId === selectionsMatchdayId);
   const effectiveType = selections.length > 1 ? betType : 'single';
   const numericStake = typeof stake === 'number' ? stake : 0;
   const combinedOdds = useMemo(
@@ -164,24 +173,38 @@ export default function Virtual() {
     [selections, effectiveType]
   );
   const potentialWin = Math.round(numericStake * combinedOdds * 100) / 100;
-  const canPlace = isBetting && selections.length > 0 && numericStake > 0 && numericStake <= balance;
+  const canPlace = selectionsMatchdayOpen && selections.length > 0 && numericStake > 0 && numericStake <= balance;
 
   /** Toggles a pick. Tapping the same outcome again removes it; picking a
    * different outcome on a fixture already in the slip replaces that pick
    * (one selection per fixture per ticket — the same rule the real bet slip
    * and the backend both enforce). */
-  const handleToggle = (fixture: VirtualFixture, market: VirtualMarket, outcomeId: string, outcomeLabel: string, odds: number) => {
-    if (!isBetting) return;
+  const handleToggle = (
+    matchdayId: string,
+    matchdayRound: number,
+    fixture: VirtualFixture,
+    market: VirtualMarket,
+    outcomeId: string,
+    outcomeLabel: string,
+    odds: number
+  ) => {
     setPlaceError(null);
     setSelections((prev) => {
-      const existingForFixture = prev.find((s) => s.fixtureId === fixture.id);
+      // A ticket stays within one matchday — switching to a fixture from a
+      // different matchday starts a fresh slip rather than mixing the two.
+      const sameMatchday = prev.length === 0 || prev[0].matchdayId === matchdayId;
+      const base = sameMatchday ? prev : [];
+
+      const existingForFixture = base.find((s) => s.fixtureId === fixture.id);
       if (existingForFixture && existingForFixture.marketKey === market.key && existingForFixture.outcomeId === outcomeId) {
-        return prev.filter((s) => s.fixtureId !== fixture.id);
+        return base.filter((s) => s.fixtureId !== fixture.id);
       }
-      const withoutFixture = prev.filter((s) => s.fixtureId !== fixture.id);
+      const withoutFixture = base.filter((s) => s.fixtureId !== fixture.id);
       return [
         ...withoutFixture,
         {
+          matchdayId,
+          matchdayRound,
           fixtureId: fixture.id,
           homeTeam: fixture.homeTeam.name,
           awayTeam: fixture.awayTeam.name,
@@ -204,6 +227,7 @@ export default function Virtual() {
         userId: user.id,
         userLabel: user.fullName,
         stake: numericStake,
+        matchdayId: selections[0].matchdayId,
         picks: selections.map((s) => ({ fixtureId: s.fixtureId, marketKey: s.marketKey, outcomeId: s.outcomeId })),
       });
       // The stake was already debited server-side as part of placing the
@@ -355,7 +379,9 @@ export default function Virtual() {
                             selected={isSelected}
                             disabled={!isBetting}
                             onClick={() =>
-                              market && outcome && handleToggle(fixture, market, outcome.id, outcome.label, outcome.odds)
+                              market &&
+                              outcome &&
+                              handleToggle(matchday.id, matchday.round, fixture, market, outcome.id, outcome.label, outcome.odds)
                             }
                           />
                         );
@@ -371,7 +397,16 @@ export default function Virtual() {
         {upcoming.length > 0 && (
           <div className="mt-4">
             <h2 className="text-card-heading mb-2">Coming Up</h2>
-            <VirtualUpcomingAccordion matchdays={upcoming} activeTab={activeTab} columns={activeMarketDef.columns} />
+            <VirtualUpcomingAccordion
+              matchdays={upcoming}
+              activeTab={activeTab}
+              columns={activeMarketDef.columns}
+              selections={selections}
+              onToggle={(matchdayId, fixture, market, outcomeId, outcomeLabel, odds) => {
+                const md = upcoming.find((u) => u.matchdayId === matchdayId);
+                if (md) handleToggle(matchdayId, md.round, fixture, market, outcomeId, outcomeLabel, odds);
+              }}
+            />
           </div>
         )}
       </div>
@@ -404,7 +439,9 @@ export default function Virtual() {
             fixture={detailFixture}
             selections={selections}
             disabled={!isBetting}
-            onToggle={(market, outcomeId, outcomeLabel, odds) => handleToggle(detailFixture, market, outcomeId, outcomeLabel, odds)}
+            onToggle={(market, outcomeId, outcomeLabel, odds) =>
+              handleToggle(matchday.id, matchday.round, detailFixture, market, outcomeId, outcomeLabel, odds)
+            }
           />
         )}
       </BottomSheet>
@@ -421,6 +458,7 @@ export default function Virtual() {
           </div>
         ) : (
           <div className="px-4 pt-2 pb-5">
+            <p className="text-micro-text text-text-secondary mb-2">Matchday #{selections[0].matchdayRound}</p>
             {selections.length > 1 && (
               <div className="flex border-b border-border mb-3">
                 {(['multiple', 'single'] as const).map((t) => (
@@ -495,7 +533,9 @@ export default function Virtual() {
             </div>
 
             {numericStake > balance && <p className="text-small-text text-error mb-2">Insufficient balance.</p>}
-            {!isBetting && <p className="text-small-text text-error mb-2">Betting is closed for this matchday.</p>}
+            {!selectionsMatchdayOpen && selections.length > 0 && (
+              <p className="text-small-text text-error mb-2">Betting is closed for this matchday.</p>
+            )}
             {placeError && <p className="text-small-text text-error mb-2">{placeError}</p>}
 
             <Button variant="primary" fullWidth onClick={handlePlaceBet} disabled={!canPlace || placing}>

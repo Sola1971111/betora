@@ -25,12 +25,16 @@ export const config = {
 } as const;
 
 export const virtualConfig = {
-  // Total length of one virtual match cycle, in seconds: betting window +
-  // simulated match + results-shown pause before the next fixture starts.
-  cycleSeconds: Number(process.env.VIRTUAL_CYCLE_SECONDS ?? 250),
-  // 3 minutes to pick and place bets before the matchday locks.
-  bettingWindowSeconds: Number(process.env.VIRTUAL_BETTING_WINDOW_SECONDS ?? 180),
-  matchLengthSeconds: Number(process.env.VIRTUAL_MATCH_LENGTH_SECONDS ?? 60),
+  // How far apart consecutive matchdays' kickoffs are, in seconds — each
+  // matchday is independently bettable from the moment it's created until
+  // its own kickoff, so several matchdays are open for betting at once,
+  // staggered by this interval.
+  cycleSeconds: Number(process.env.VIRTUAL_CYCLE_SECONDS ?? 180),
+  // Time to pick and place bets before a given matchday locks.
+  bettingWindowSeconds: Number(process.env.VIRTUAL_BETTING_WINDOW_SECONDS ?? 150),
+  // Total simulated match length — split evenly into two "halves" for the
+  // live animation (e.g. 20 total = 10s first half + 10s second half).
+  matchLengthSeconds: Number(process.env.VIRTUAL_MATCH_LENGTH_SECONDS ?? 20),
 } as const;
 
 export const oddsApiConfig: OddsApiConfig = {
