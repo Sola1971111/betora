@@ -140,12 +140,11 @@ export function normalizeSports(raw: RawSportEntry[]): NormalizedSport[] {
 }
 
 /**
- * Every league SharpAPI reports for a sport, filtered down to the curated
- * top-leagues + European/international allowlist for soccer (see
- * sportMapping.ts) — other sports aren't filtered. Each gets a parsed
- * `country`/region so the frontend can group them (Sport → Country →
- * Competition) without ever hardcoding which leagues exist beyond that
- * curated list.
+ * Every league SharpAPI reports for a sport, filtered down to that
+ * sport's curated top-5 allowlist (see sportMapping.ts). Each gets a
+ * parsed `country`/region so the frontend can group them (Sport →
+ * Country → Competition) without ever hardcoding which leagues exist
+ * beyond that curated list.
  */
 export function normalizeCompetitions(raw: RawSportEntry[]): NormalizedCompetition[] {
   const competitions: NormalizedCompetition[] = [];
@@ -153,7 +152,7 @@ export function normalizeCompetitions(raw: RawSportEntry[]): NormalizedCompetiti
     const betoraSport = sharpSportToBetoraSport(s.id);
     if (!betoraSport) continue;
     for (const leagueId of s.leagues) {
-      if (s.id === 'soccer' && !isAllowedLeague(leagueId)) continue;
+      if (!isAllowedLeague(betoraSport, leagueId)) continue;
       const parsed = parseLeagueId(leagueId);
       competitions.push({
         id: leagueId,
