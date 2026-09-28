@@ -135,8 +135,11 @@ export async function fetchEvents(sport: string): Promise<Match[]> {
   return data.events.map(adaptEvent);
 }
 
-export async function fetchLiveEvents(sport?: string): Promise<Match[]> {
-  const query = sport ? `?sport=${encodeURIComponent(sport)}` : '';
+export async function fetchLiveEvents(sport?: string, limit?: number): Promise<Match[]> {
+  const params = new URLSearchParams();
+  if (sport) params.set('sport', sport);
+  if (limit) params.set('limit', String(limit));
+  const query = params.toString() ? `?${params.toString()}` : '';
   const data = await request<ApiEventsResponse>(`/api/events/live${query}`);
   return data.events.map(adaptEvent);
 }

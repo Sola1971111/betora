@@ -16,7 +16,11 @@ interface UseLiveEventsResult {
  * The interval defaults to 15s but can be overridden once /api/sports
  * reports the server-configured LIVE_ODDS_REFRESH_INTERVAL.
  */
-export function useLiveEvents(sport?: string, refreshIntervalMs: number = DEFAULT_REFRESH_MS): UseLiveEventsResult {
+export function useLiveEvents(
+  sport?: string,
+  refreshIntervalMs: number = DEFAULT_REFRESH_MS,
+  limit?: number
+): UseLiveEventsResult {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +32,7 @@ export function useLiveEvents(sport?: string, refreshIntervalMs: number = DEFAUL
     const load = async (isFirstLoad: boolean) => {
       if (isFirstLoad) setLoading(true);
       try {
-        const fetched = await fetchLiveEvents(sport);
+        const fetched = await fetchLiveEvents(sport, limit);
         if (cancelled) return;
         const withChangeTracking = fetched.map((match) => ({
           ...match,
@@ -61,7 +65,7 @@ export function useLiveEvents(sport?: string, refreshIntervalMs: number = DEFAUL
       cancelled = true;
       clearInterval(interval);
     };
-  }, [sport, refreshIntervalMs]);
+  }, [sport, refreshIntervalMs, limit]);
 
   return { matches, loading, error };
 }

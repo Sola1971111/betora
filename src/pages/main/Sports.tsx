@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { sportIcons } from '../../data/sportIcons';
@@ -7,22 +7,37 @@ import { useEvents } from '../../hooks/useEvents';
 import MatchCard from '../../components/MatchCard';
 import MatchListStatus from '../../components/MatchListStatus';
 
+const COMPETITIONS_PAGE_SIZE = 20;
+const EVENTS_PAGE_SIZE = 15;
+
 export default function Sports() {
   const navigate = useNavigate();
   const { data, loading: sportsLoading } = useSports();
   const sports = data?.sports ?? [];
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
+  const [visibleCompetitions, setVisibleCompetitions] = useState(COMPETITIONS_PAGE_SIZE);
+  const [visibleEvents, setVisibleEvents] = useState(EVENTS_PAGE_SIZE);
 
   // Default to the first available sport once the list loads
   const activeSport = selectedSport ?? sports[0]?.id ?? null;
 
-  const competitions = useMemo(
+  // Real coverage can run into the hundreds of leagues per sport — reset
+  // how many are shown whenever the sport changes, rather than carrying a
+  // "show more" state from one sport into a totally different list.
+  useEffect(() => {
+    setVisibleCompetitions(COMPETITIONS_PAGE_SIZE);
+    setVisibleEvents(EVENTS_PAGE_SIZE);
+  }, [activeSport]);
+
+  const allCompetitions = useMemo(
     () => (data?.competitions ?? []).filter((c) => c.sportId === activeSport),
     [data, activeSport]
   );
+  const competitions = allCompetitions.slice(0, visibleCompetitions);
 
   const { matches, loading, error, retry } = useEvents(activeSport);
-  const upcomingMatches = matches.filter((m) => m.status === 'upcoming');
+  const allUpcoming = useMemo(() => matches.filter((m) => m.status === 'upcoming'), [matches]);
+  const upcomingMatches = allUpcoming.slice(0, visibleEvents);
 
   return (
     <div>
@@ -53,7 +68,10 @@ export default function Sports() {
 
         {competitions.length > 0 && (
           <div className="mb-5">
-            <h2 className="text-section-heading mb-2">Competitions</h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-section-heading">Competitions</h2>
+              <span className="text-micro-text text-text-secondary">{allCompetitions.length} total</span>
+            </div>
             <div className="space-y-2">
               {competitions.map((c) => (
                 <button
@@ -69,6 +87,14 @@ export default function Sports() {
                 </button>
               ))}
             </div>
+            {visibleCompetitions < allCompetitions.length && (
+              <button
+                onClick={() => setVisibleCompetitions((v) => v + COMPETITIONS_PAGE_SIZE)}
+                className="w-full text-center text-secondary-text font-semibold text-primary py-3"
+              >
+                Show More Competitions
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -85,11 +111,21 @@ export default function Sports() {
               emptyMessage="No matches available for this sport right now"
             />
           ) : (
-            <div className="space-y-2.5">
-              {upcomingMatches.map((m) => (
-                <MatchCard key={m.id} match={m} />
-              ))}
-            </div>
+            <>
+              <div className="space-y-2.5">
+                {upcomingMatches.map((m) => (
+                  <MatchCard key={m.id} match={m} />
+                ))}
+              </div>
+              {visibleEvents < allUpcoming.length && (
+                <button
+                  onClick={() => setVisibleEvents((v) => v + EVENTS_PAGE_SIZE)}
+                  className="w-full text-center text-secondary-text font-semibold text-primary py-3"
+                >
+                  Show More Matches
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

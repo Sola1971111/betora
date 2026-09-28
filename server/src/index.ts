@@ -67,11 +67,24 @@ app.get('/api/events', async (req, res) => {
     res.status(400).json({ error: 'Invalid or missing sport query parameter' });
     return;
   }
+  // Real coverage can run into the thousands of events across hundreds of
+  // leagues — sending all of it in one response is what was crashing
+  // mobile clients (huge payload + huge in-memory render). Cap it here,
+  // sorted soonest-first, with pagination metadata so the frontend can
+  // offer "Show More" instead of trying to render everything at once.
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 60));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
   try {
     const raw = await oddsApi.getUpcomingEvents(sport);
     const teamLogos = await logosForRows(raw);
-    const events = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos);
-    res.json({ events });
+    const allEvents = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos).sort(
+      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    );
+    const events = allEvents.slice(offset, offset + limit);
+    res.json({
+      events,
+      pagination: { total: allEvents.length, limit, offset, hasMore: offset + limit < allEvents.length },
+    });
   } catch (err) {
     handleError(res, err);
   }
@@ -84,10 +97,14 @@ app.get('/api/events/live', async (req, res) => {
     res.status(400).json({ error: 'Invalid sport query parameter' });
     return;
   }
+  // Same reasoning as /api/events — real live coverage can run into the
+  // hundreds of simultaneous events; cap the response so no client ends up
+  // holding (or rendering) all of them at once.
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 40));
   try {
     const raw = await oddsApi.getLiveEvents(sportParam as BetoraSport | undefined);
     const teamLogos = await logosForRows(raw);
-    const events = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos);
+    const events = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos).slice(0, limit);
     res.json({ events });
   } catch (err) {
     handleError(res, err);

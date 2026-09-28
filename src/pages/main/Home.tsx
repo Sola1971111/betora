@@ -25,9 +25,19 @@ export default function Home() {
   // Football drives the main "Today's Football" + "Upcoming" sections on Home,
   // matching the previous layout; other sports are reachable via Sports page.
   const { matches, loading, error, retry } = useEvents('football');
-  const { matches: liveMatches } = useLiveEvents(undefined, refreshInterval);
+  // Real live coverage can run into the hundreds of matches globally — Home
+  // only needs enough to fill a short horizontal scroller, not all of them
+  // (that's what the dedicated Live page, and its full unfiltered list, is for).
+  const { matches: liveMatches } = useLiveEvents(undefined, refreshInterval, 20);
 
-  const footballCompetitions = useMemo(() => competitions.filter((c) => c.sportId === 'football'), [competitions]);
+  // With real full league coverage this can now run into the hundreds —
+  // "Popular Events" is a short curated-feeling row, not an index of every
+  // league that exists (that's what the Sports page, with its own cap and
+  // Show More, is for).
+  const footballCompetitions = useMemo(
+    () => competitions.filter((c) => c.sportId === 'football').slice(0, 12),
+    [competitions]
+  );
   const upcomingMatches = useMemo(() => matches.filter((m) => m.status === 'upcoming'), [matches]);
   const featuredMatch = upcomingMatches[0];
   const todaysFootball = useMemo(() => upcomingMatches.slice(0, 4), [upcomingMatches]);
@@ -87,18 +97,23 @@ export default function Home() {
         </div>
       )}
 
-      {/* Live now — only genuinely live events, never upcoming ones mislabeled */}
+      {/* Live now — only genuinely live events, never upcoming ones mislabeled.
+          Capped at the fetch level (see hook call above); this is a short
+          horizontal preview, not the full list — that lives on /live. */}
       {liveMatches.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-section-heading">Live Now</h2>
             <span className="flex items-center gap-1 bg-error/10 px-1.5 py-0.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-error animate-[pulseSoft_1.6s_ease-in-out_infinite]" />
-              <span className="text-micro-text font-bold text-error">{liveMatches.length} LIVE</span>
+              <span className="text-micro-text font-bold text-error">LIVE</span>
             </span>
+            <button onClick={() => navigate('/live')} className="ml-auto text-micro-text font-semibold text-primary">
+              See All
+            </button>
           </div>
           <div className="flex gap-2.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1">
-            {liveMatches.map((m) => (
+            {liveMatches.slice(0, 20).map((m) => (
               <LiveMatchCard key={m.id} match={m} />
             ))}
           </div>
