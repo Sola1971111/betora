@@ -1,6 +1,6 @@
 import type { RawOddsRow, RawSportEntry } from './rawTypes.js';
 import type { NormalizedCompetition, NormalizedEvent, NormalizedMarket, NormalizedOutcome, NormalizedSport } from './types.js';
-import { marketMeta, parseLeagueId, sharpSportToBetoraSport, SPORT_DISPLAY_NAMES } from './sportMapping.js';
+import { marketMeta, parseLeagueId, isAllowedLeague, sharpSportToBetoraSport, SPORT_DISPLAY_NAMES } from './sportMapping.js';
 
 export interface NormalizeConfig {
   defaultBookmaker: string; // SharpAPI sportsbook id, e.g. "pinnacle"; empty string = best-price aggregation
@@ -140,10 +140,12 @@ export function normalizeSports(raw: RawSportEntry[]): NormalizedSport[] {
 }
 
 /**
- * Every league SharpAPI reports for a sport, dynamically — not a
- * hand-picked subset. Each gets a parsed `country`/region so the frontend
- * can group them later (Sport → Country → Competition) without Betora
- * ever hardcoding which leagues exist.
+ * Every league SharpAPI reports for a sport, filtered down to the curated
+ * top-leagues + European/international allowlist for soccer (see
+ * sportMapping.ts) — other sports aren't filtered. Each gets a parsed
+ * `country`/region so the frontend can group them (Sport → Country →
+ * Competition) without ever hardcoding which leagues exist beyond that
+ * curated list.
  */
 export function normalizeCompetitions(raw: RawSportEntry[]): NormalizedCompetition[] {
   const competitions: NormalizedCompetition[] = [];
@@ -151,6 +153,7 @@ export function normalizeCompetitions(raw: RawSportEntry[]): NormalizedCompetiti
     const betoraSport = sharpSportToBetoraSport(s.id);
     if (!betoraSport) continue;
     for (const leagueId of s.leagues) {
+      if (s.id === 'soccer' && !isAllowedLeague(leagueId)) continue;
       const parsed = parseLeagueId(leagueId);
       competitions.push({
         id: leagueId,

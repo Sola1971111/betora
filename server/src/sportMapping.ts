@@ -63,6 +63,75 @@ export function parseLeagueId(leagueId: string): ParsedLeague {
   return { id: leagueId, region: 'International / Other', competition: titleCase(leagueId) };
 }
 
+/**
+ * The curated set of leagues Betora actually shows: the world's ~20
+ * biggest domestic leagues, plus every European and international
+ * competition. This is matched against the PARSED display name (not raw
+ * provider ids), so it holds regardless of the exact id string a provider
+ * happens to use — a league only needs its region and competition name to
+ * both contain the listed keywords.
+ *
+ * This exists purely to keep the dataset a sane size end-to-end (fetch,
+ * memory, payload, render) — it does not mean Betora "can't support" other
+ * leagues; extending this list is a one-line addition, not a rearchitecture.
+ */
+const TOP_DOMESTIC_LEAGUES: { region: string; competition: string }[] = [
+  { region: 'england', competition: 'premier league' },
+  { region: 'spain', competition: 'la liga' },
+  { region: 'italy', competition: 'serie a' },
+  { region: 'germany', competition: 'bundesliga' },
+  { region: 'france', competition: 'ligue 1' },
+  { region: 'netherlands', competition: 'eredivisie' },
+  { region: 'portugal', competition: 'primeira liga' },
+  { region: 'belgium', competition: 'pro league' },
+  { region: 'turkey', competition: 'super lig' },
+  { region: 'scotland', competition: 'premiership' },
+  { region: 'usa', competition: 'major league soccer' },
+  { region: 'brazil', competition: 'serie a' },
+  { region: 'argentina', competition: 'primera division' },
+  { region: 'mexico', competition: 'liga mx' },
+  { region: 'saudi', competition: 'pro league' },
+  { region: 'japan', competition: 'j1 league' },
+  { region: 'south korea', competition: 'k league' },
+  { region: 'australia', competition: 'a-league' },
+  { region: 'china', competition: 'super league' },
+  { region: 'greece', competition: 'super league' },
+];
+
+// Competitions that aren't tied to one country — matched by competition
+// name alone, since these typically show up under "World", "UEFA", "FIFA",
+// or similar region groupings rather than a single nation.
+const INTERNATIONAL_KEYWORDS = [
+  'champions league',
+  'europa league',
+  'conference league',
+  'nations league',
+  'world cup',
+  'european championship',
+  'euro qualif',
+  'copa america',
+  'africa cup',
+  'afcon',
+  'gold cup',
+  'international friendlies',
+  'world cup qualif',
+];
+
+export function isAllowedLeague(leagueId: string): boolean {
+  const { region, competition } = parseLeagueId(leagueId);
+  const r = region.toLowerCase();
+  const c = competition.toLowerCase();
+
+  // Age-group and youth competitions (U17/U19/U21/U23/junior) are excluded
+  // even when they'd otherwise match a keyword below — "top leagues plus
+  // European/international competitions" means the senior competitions.
+  if (/\bu1[7-9]\b|\bu2[0-3]\b|junior|youth/.test(c)) return false;
+
+  if (TOP_DOMESTIC_LEAGUES.some((l) => r.includes(l.region) && c.includes(l.competition))) return true;
+  if (INTERNATIONAL_KEYWORDS.some((kw) => c.includes(kw))) return true;
+  return false;
+}
+
 // Market type -> friendly title + detail-page category, keyed by SharpAPI's
 // own market_type strings. Anything not listed falls back to a title-cased
 // version of the key under "Other" so unexpected markets the API adds

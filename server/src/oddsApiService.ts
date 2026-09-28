@@ -1,7 +1,7 @@
 import type { RawOddsRow, RawOddsResponse, RawSportEntry, RawSportsResponse } from './rawTypes.js';
 import { MOCK_ODDS_ROWS, MOCK_SPORTS } from './mockData.js';
 import { TtlCache } from './cache.js';
-import { BETORA_SPORTS, sharpSportToBetoraSport, type BetoraSport } from './sportMapping.js';
+import { BETORA_SPORTS, isAllowedLeague, sharpSportToBetoraSport, type BetoraSport } from './sportMapping.js';
 
 export interface OddsApiConfig {
   apiKey: string;
@@ -94,7 +94,14 @@ export class OddsApiService {
     });
   }
 
-  /** Fetches every odds row for a sport, paginating up to MAX_PAGES. */
+  /**
+   * Fetches every odds row for a sport, paginating up to MAX_PAGES. For
+   * soccer specifically, rows are filtered down to the curated
+   * top-leagues + European/international allowlist as each page comes in
+   * — not just after the fact — so memory never holds the full unfiltered
+   * set even transiently. Other sports (basketball, tennis) aren't
+   * filtered; they don't have soccer's hundreds-of-leagues problem.
+   */
   private async fetchAllOddsRows(sharpSportId: string, live?: boolean): Promise<RawOddsRow[]> {
     const rows: RawOddsRow[] = [];
     let offset = 0;
@@ -111,7 +118,8 @@ export class OddsApiService {
         break;
       }
       const body = (await res.json()) as RawOddsResponse;
-      rows.push(...body.data);
+      const pageRows = sharpSportId === 'soccer' ? body.data.filter((r) => isAllowedLeague(r.league)) : body.data;
+      rows.push(...pageRows);
       if (!body.pagination.has_more) break;
       offset = body.pagination.next_offset ?? offset + 500;
     }
