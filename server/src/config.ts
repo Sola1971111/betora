@@ -39,9 +39,7 @@ export const virtualConfig = {
 
 export const oddsApiConfig: OddsApiConfig = {
   apiKey: process.env.ODDS_API_KEY ?? '',
-  baseUrl: process.env.ODDS_API_BASE_URL ?? 'https://api.the-odds-api.com',
-  region: process.env.DEFAULT_ODDS_REGION ?? 'eu',
-  oddsFormat: process.env.ODDS_FORMAT ?? 'decimal',
+  baseUrl: process.env.ODDS_API_BASE_URL ?? 'https://api.sharpapi.io/api/v1',
   useMockData: bool(process.env.USE_MOCK_DATA, false),
 };
 

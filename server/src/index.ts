@@ -2,10 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import { config, oddsApiConfig } from './config.js';
 import { OddsApiService, OddsApiError } from './oddsApiService.js';
-import { normalizeCompetitions, normalizeEvent, normalizeSports } from './normalize.js';
+import { normalizeCompetitions, normalizeOddsRows, normalizeSports } from './normalize.js';
 import { BETORA_SPORTS, type BetoraSport } from './sportMapping.js';
 import { getTeamLogos } from './teamLogos.js';
-import type { RawEvent } from './rawTypes.js';
+import type { RawOddsRow } from './rawTypes.js';
 import { virtualEngine } from './virtual/engine.js';
 import { userStore } from './users/store.js';
 import { walletRequestStore } from './wallet/store.js';
@@ -28,8 +28,8 @@ function isBetoraSport(value: string): value is BetoraSport {
   return (BETORA_SPORTS as readonly string[]).includes(value);
 }
 
-async function logosForEvents(events: RawEvent[]): Promise<Record<string, string | null>> {
-  const teamNames = events.flatMap((e) => [e.home_team, e.away_team]);
+async function logosForRows(rows: RawOddsRow[]): Promise<Record<string, string | null>> {
+  const teamNames = [...new Set(rows.flatMap((r) => [r.home_team, r.away_team]))];
   if (teamNames.length === 0) return {};
   return getTeamLogos(teamNames);
 }
@@ -69,15 +69,8 @@ app.get('/api/events', async (req, res) => {
   }
   try {
     const raw = await oddsApi.getUpcomingEvents(sport);
-    const teamLogos = await logosForEvents(raw);
-    const events = raw
-      .map((e) => normalizeEvent(e, { defaultBookmaker: config.defaultBookmaker }, false, teamLogos))
-      .filter((e): e is NonNullable<typeof e> => e !== null);
-    const skipped = raw.length - events.length;
-    if (skipped > 0) {
-      // eslint-disable-next-line no-console
-      console.log(`[ODDS API] ${skipped} events had no usable markets`);
-    }
+    const teamLogos = await logosForRows(raw);
+    const events = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos);
     res.json({ events });
   } catch (err) {
     handleError(res, err);
@@ -93,10 +86,8 @@ app.get('/api/events/live', async (req, res) => {
   }
   try {
     const raw = await oddsApi.getLiveEvents(sportParam as BetoraSport | undefined);
-    const teamLogos = await logosForEvents(raw);
-    const events = raw
-      .map((e) => normalizeEvent(e, { defaultBookmaker: config.defaultBookmaker }, true, teamLogos))
-      .filter((e): e is NonNullable<typeof e> => e !== null);
+    const teamLogos = await logosForRows(raw);
+    const events = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos);
     res.json({ events });
   } catch (err) {
     handleError(res, err);
@@ -116,12 +107,14 @@ app.get('/api/events/:id', async (req, res) => {
     return;
   }
   try {
-    const raw = await oddsApi.getEventById(sport, eventId);
-    if (!raw) {
+    const raw = await oddsApi.getEventRows(sport, eventId);
+    if (raw.length === 0) {
       res.status(404).json({ error: 'Event not found' });
       return;
     }
-    const event = normalizeEvent(raw, { defaultBookmaker: config.defaultBookmaker }, false, await logosForEvents([raw]));
+    const teamLogos = await logosForRows(raw);
+    const events = normalizeOddsRows(raw, { defaultBookmaker: config.defaultBookmaker }, teamLogos);
+    const event = events[0];
     if (!event) {
       res.status(404).json({ error: 'Event not found' });
       return;

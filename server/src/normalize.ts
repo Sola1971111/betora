@@ -1,160 +1,164 @@
-import type { RawBookmaker, RawEvent, RawMarket, RawOutcome, RawSport } from './rawTypes.js';
+import type { RawOddsRow, RawSportEntry } from './rawTypes.js';
 import type { NormalizedCompetition, NormalizedEvent, NormalizedMarket, NormalizedOutcome, NormalizedSport } from './types.js';
-import { friendlyCompetitionName, marketMeta, sportKeyToBetoraSport, type BetoraSport } from './sportMapping.js';
+import { marketMeta, parseLeagueId, sharpSportToBetoraSport, SPORT_DISPLAY_NAMES } from './sportMapping.js';
 
 export interface NormalizeConfig {
-  defaultBookmaker: string; // provider bookmaker key, e.g. "pinnacle"; empty string = best-price aggregation
-}
-
-function normalizeOutcome(marketKey: string, raw: RawOutcome): NormalizedOutcome {
-  const price = typeof raw.price === 'number' && Number.isFinite(raw.price) && raw.price > 1 ? raw.price : null;
-  const point = typeof raw.point === 'number' && Number.isFinite(raw.point) ? raw.point : null;
-  return {
-    id: `${marketKey}-${raw.name}-${point ?? ''}`,
-    name: raw.name,
-    price,
-    point,
-  };
+  defaultBookmaker: string; // SharpAPI sportsbook id, e.g. "pinnacle"; empty string = best-price aggregation
 }
 
 /**
- * Picks which bookmaker's markets to surface for an event.
- * - If a DEFAULT_BOOKMAKER is configured and present, use it.
- * - Otherwise, synthesize a "best price" pseudo-bookmaker: for every
- *   market/outcome combination, take the highest price across all
- *   bookmakers returned for that event. This never fabricates markets —
- *   it only chooses the best real price among what was actually returned.
+ * SharpAPI's /odds returns one FLAT ROW per (sportsbook, event, market,
+ * selection). This groups those rows back into one event per unique
+ * event_id, with markets/outcomes nested underneath — the shape the rest
+ * of Betora (and the frontend) already expects.
  */
-function selectMarkets(bookmakers: RawBookmaker[], config: NormalizeConfig): { markets: RawMarket[]; sourceTitle: string | null; lastUpdate: string | null } {
-  if (bookmakers.length === 0) return { markets: [], sourceTitle: null, lastUpdate: null };
-
-  if (config.defaultBookmaker) {
-    const preferred = bookmakers.find((b) => b.key === config.defaultBookmaker);
-    if (preferred) {
-      return { markets: preferred.markets, sourceTitle: preferred.title, lastUpdate: preferred.last_update };
-    }
+export function normalizeOddsRows(
+  rows: RawOddsRow[],
+  config: NormalizeConfig,
+  teamLogos: Record<string, string | null> = {}
+): NormalizedEvent[] {
+  const byEvent = new Map<string, RawOddsRow[]>();
+  for (const row of rows) {
+    if (!byEvent.has(row.event_id)) byEvent.set(row.event_id, []);
+    byEvent.get(row.event_id)!.push(row);
   }
 
-  // Best-price aggregation across all returned bookmakers.
-  const byMarketKey = new Map<string, Map<string, RawOutcome & { point?: number }>>();
-  let latestUpdate: string | null = null;
+  const events: NormalizedEvent[] = [];
 
-  for (const bookmaker of bookmakers) {
-    if (!latestUpdate || bookmaker.last_update > latestUpdate) latestUpdate = bookmaker.last_update;
-    for (const market of bookmaker.markets) {
-      if (!byMarketKey.has(market.key)) byMarketKey.set(market.key, new Map());
-      const outcomeMap = byMarketKey.get(market.key)!;
-      for (const outcome of market.outcomes) {
-        const outcomeId = `${outcome.name}-${outcome.point ?? ''}`;
-        const existing = outcomeMap.get(outcomeId);
-        if (!existing || outcome.price > existing.price) {
-          outcomeMap.set(outcomeId, outcome);
-        }
+  for (const [eventId, eventRows] of byEvent) {
+    const first = eventRows[0];
+    const sport = sharpSportToBetoraSport(first.sport);
+    if (!sport) continue;
+
+    const preferredRows = config.defaultBookmaker
+      ? eventRows.filter((r) => r.sportsbook === config.defaultBookmaker)
+      : eventRows;
+    // Fall back to all books for this event if the preferred one didn't cover it.
+    const rowsToUse = preferredRows.length > 0 ? preferredRows : eventRows;
+
+    // Group by market_type, then by outcome (selection + line), picking the
+    // best available row per outcome: an active (non-suspended) price beats
+    // a suspended one, and among equally-active rows the best decimal odds
+    // wins — this is a "best price across real bookmakers" aggregation, it
+    // never invents a price that wasn't actually returned.
+    const byMarket = new Map<string, Map<string, RawOddsRow>>();
+    let latestTimestamp = first.timestamp;
+
+    for (const row of rowsToUse) {
+      if (row.timestamp > latestTimestamp) latestTimestamp = row.timestamp;
+      if (!byMarket.has(row.market_type)) byMarket.set(row.market_type, new Map());
+      const outcomeMap = byMarket.get(row.market_type)!;
+      const outcomeKey = `${row.selection}-${row.line ?? ''}`;
+      const existing = outcomeMap.get(outcomeKey);
+
+      if (!existing) {
+        outcomeMap.set(outcomeKey, row);
+        continue;
+      }
+      const existingActive = existing.is_active !== false;
+      const rowActive = row.is_active !== false;
+      if (rowActive && !existingActive) {
+        outcomeMap.set(outcomeKey, row);
+      } else if (rowActive === existingActive && row.odds_decimal > existing.odds_decimal) {
+        outcomeMap.set(outcomeKey, row);
       }
     }
+
+    const markets: NormalizedMarket[] = Array.from(byMarket.entries())
+      .map(([marketType, outcomeMap]) => {
+        const meta = marketMeta(marketType);
+        const outcomes: NormalizedOutcome[] = Array.from(outcomeMap.values()).map((row) => {
+          const validPrice = Number.isFinite(row.odds_decimal) && row.odds_decimal > 1;
+          return {
+            id: `${marketType}-${row.selection}-${row.line ?? ''}`,
+            name: row.selection,
+            // is_active: false means the market is suspended — the price is
+            // frozen upstream, so Betora treats it the same as "no price
+            // available" (renders as SUSPENDED, never a stale/bettable button).
+            price: row.is_active === false || !validPrice ? null : row.odds_decimal,
+            point: row.line ?? null,
+          } satisfies NormalizedOutcome;
+        });
+        return {
+          id: marketType,
+          key: marketType,
+          title: meta.title,
+          category: meta.category,
+          outcomes,
+          lastUpdate: latestTimestamp,
+        } satisfies NormalizedMarket;
+      })
+      // drop markets that ended up with zero valid, renderable outcomes
+      .filter((m) => m.outcomes.some((o) => o.price !== null));
+
+    const parsedLeague = parseLeagueId(first.league);
+
+    // SharpAPI's /odds rows don't carry a live score — that comes from a
+    // separate "Live Game State" endpoint not yet wired in. Left undefined
+    // here rather than guessed; the frontend already handles a missing
+    // liveScore gracefully (shows the LIVE badge without a score).
+    const liveScore: NormalizedEvent['liveScore'] = undefined;
+    const status: NormalizedEvent['status'] = first.is_live ? 'LIVE' : 'UPCOMING';
+
+    events.push({
+      id: eventId,
+      sportKey: first.sport,
+      sport,
+      sportTitle: SPORT_DISPLAY_NAMES[sport],
+      league: parsedLeague.competition,
+      leagueKey: first.league,
+      homeTeam: first.home_team,
+      awayTeam: first.away_team,
+      homeTeamLogo: teamLogos[first.home_team] ?? null,
+      awayTeamLogo: teamLogos[first.away_team] ?? null,
+      startTime: first.event_start_time,
+      status,
+      liveScore,
+      bookmakerTitle: config.defaultBookmaker || 'Best Available',
+      markets,
+      totalMarketsCount: markets.length,
+    });
   }
 
-  const markets: RawMarket[] = Array.from(byMarketKey.entries()).map(([key, outcomeMap]) => ({
+  return events;
+}
+
+export function normalizeSports(raw: RawSportEntry[]): NormalizedSport[] {
+  const bySport = new Map<string, RawSportEntry[]>();
+  for (const s of raw) {
+    const betoraSport = sharpSportToBetoraSport(s.id);
+    if (!betoraSport) continue;
+    if (!bySport.has(betoraSport)) bySport.set(betoraSport, []);
+    bySport.get(betoraSport)!.push(s);
+  }
+  return Array.from(bySport.entries()).map(([key, entries]) => ({
     key,
-    last_update: latestUpdate ?? new Date().toISOString(),
-    outcomes: Array.from(outcomeMap.values()),
+    providerKeys: entries.map((e) => e.id),
+    name: SPORT_DISPLAY_NAMES[key as keyof typeof SPORT_DISPLAY_NAMES],
+    active: entries.some((e) => e.event_count > 0),
   }));
-
-  return { markets, sourceTitle: 'Best Available', lastUpdate: latestUpdate };
 }
 
-function normalizeMarket(raw: RawMarket): NormalizedMarket {
-  const meta = marketMeta(raw.key);
-  return {
-    id: raw.key,
-    key: raw.key,
-    title: meta.title,
-    category: meta.category,
-    lastUpdate: raw.last_update ?? null,
-    outcomes: raw.outcomes.map((o) => normalizeOutcome(raw.key, o)),
-  };
-}
-
-export function normalizeEvent(
-  raw: RawEvent,
-  config: NormalizeConfig,
-  isLive: boolean,
-  teamLogos: Record<string, string | null> = {}
-): NormalizedEvent | null {
-  const sport = sportKeyToBetoraSport(raw.sport_key);
-  if (!sport) return null; // not a sport Betora currently supports
-
-  const { markets: rawMarkets, sourceTitle } = selectMarkets(raw.bookmakers, config);
-  const markets = rawMarkets
-    .map(normalizeMarket)
-    // drop markets that ended up with zero valid, renderable outcomes
-    .filter((m) => m.outcomes.some((o) => o.price !== null));
-
-  const totalMarketsCount = raw.bookmakers.reduce((max, b) => Math.max(max, b.markets.length), markets.length);
-
-  let liveScore: NormalizedEvent['liveScore'];
-  if (isLive && raw.scores && raw.scores.length >= 2) {
-    const homeScore = raw.scores.find((s) => s.name === raw.home_team);
-    const awayScore = raw.scores.find((s) => s.name === raw.away_team);
-    if (homeScore && awayScore) {
-      liveScore = {
-        home: Number(homeScore.score) || 0,
-        away: Number(awayScore.score) || 0,
-        minute: null,
-      };
+/**
+ * Every league SharpAPI reports for a sport, dynamically — not a
+ * hand-picked subset. Each gets a parsed `country`/region so the frontend
+ * can group them later (Sport → Country → Competition) without Betora
+ * ever hardcoding which leagues exist.
+ */
+export function normalizeCompetitions(raw: RawSportEntry[]): NormalizedCompetition[] {
+  const competitions: NormalizedCompetition[] = [];
+  for (const s of raw) {
+    const betoraSport = sharpSportToBetoraSport(s.id);
+    if (!betoraSport) continue;
+    for (const leagueId of s.leagues) {
+      const parsed = parseLeagueId(leagueId);
+      competitions.push({
+        id: leagueId,
+        name: parsed.competition,
+        sport: betoraSport,
+        country: parsed.region,
+      });
     }
   }
-
-  const status: NormalizedEvent['status'] = raw.completed ? 'FINISHED' : isLive ? 'LIVE' : 'UPCOMING';
-
-  return {
-    id: raw.id,
-    sportKey: raw.sport_key,
-    sport,
-    sportTitle: raw.sport_title,
-    league: friendlyCompetitionName(raw.sport_key, raw.sport_title),
-    leagueKey: raw.sport_key,
-    homeTeam: raw.home_team,
-    awayTeam: raw.away_team,
-    homeTeamLogo: teamLogos[raw.home_team] ?? null,
-    awayTeamLogo: teamLogos[raw.away_team] ?? null,
-    startTime: raw.commence_time,
-    status,
-    liveScore,
-    bookmakerTitle: sourceTitle,
-    markets,
-    totalMarketsCount,
-  };
-}
-
-export function normalizeSports(raw: RawSport[]): NormalizedSport[] {
-  const grouped = new Map<BetoraSport, string[]>();
-  for (const s of raw) {
-    if (!s.active) continue;
-    const betoraSport = sportKeyToBetoraSport(s.key);
-    if (!betoraSport) continue;
-    if (!grouped.has(betoraSport)) grouped.set(betoraSport, []);
-    grouped.get(betoraSport)!.push(s.key);
-  }
-  return Array.from(grouped.entries()).map(([key, providerKeys]) => ({
-    key,
-    providerKeys,
-    name: key.charAt(0).toUpperCase() + key.slice(1),
-    active: providerKeys.length > 0,
-  }));
-}
-
-export function normalizeCompetitions(raw: RawSport[]): NormalizedCompetition[] {
-  return raw
-    .filter((s) => s.active)
-    .map((s) => {
-      const sport = sportKeyToBetoraSport(s.key);
-      if (!sport) return null;
-      return {
-        id: s.key,
-        name: friendlyCompetitionName(s.key, s.title),
-        sport,
-      } satisfies NormalizedCompetition;
-    })
-    .filter((c): c is NormalizedCompetition => c !== null);
+  return competitions;
 }

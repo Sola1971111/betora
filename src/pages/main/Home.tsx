@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LayoutGrid, Radio, Gamepad2, Gift } from 'lucide-react';
 import { sportIcons } from '../../data/sportIcons';
 import MatchCard from '../../components/MatchCard';
 import LiveMatchCard from '../../components/LiveMatchCard';
 import FeaturedMatchCard from '../../components/FeaturedMatchCard';
 import PromoCodeCard from '../../components/PromoCodeCard';
+import Footer from '../../components/Footer';
 import PopularEventsScroller from '../../components/PopularEventsScroller';
 import LeagueHeader from '../../components/LeagueHeader';
 import CryptoBonusBanner from '../../components/CryptoBonusBanner';
@@ -35,6 +37,29 @@ export default function Home() {
 
   return (
     <div className="px-4 py-3.5 space-y-5">
+      {/* Quick nav — shortcuts to Sports, Live, Virtual, Promotions.
+          Deliberately NOT a 6th bottom-tab icon; this row lives on Home only. */}
+      <div className="grid grid-cols-4 gap-2 -mt-1">
+        {[
+          { to: '/sports', label: 'All Sports', icon: LayoutGrid },
+          { to: '/live', label: 'Live', icon: Radio, badge: liveMatches.length },
+          { to: '/virtual', label: 'Virtual', icon: Gamepad2 },
+          { to: '/promotions', label: 'Promos', icon: Gift },
+        ].map(({ to, label, icon: Icon, badge }) => (
+          <button
+            key={to}
+            onClick={() => navigate(to)}
+            className="relative flex flex-col items-center gap-1 py-2 rounded-card bg-card border border-border"
+          >
+            <Icon size={19} className="text-navy" />
+            <span className="text-micro-text font-semibold text-text-secondary">{label}</span>
+            {!!badge && (
+              <span className="absolute top-1.5 right-1/2 translate-x-3.5 w-2 h-2 rounded-full bg-error" />
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* Crypto deposit bonus banner */}
       <CryptoBonusBanner />
 
@@ -120,6 +145,8 @@ export default function Home() {
 
       {/* Promo Code */}
       <PromoCodeCard />
+
+      <Footer />
     </div>
   );
 }

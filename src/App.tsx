@@ -20,6 +20,8 @@ import AdminVirtual from './pages/admin/AdminVirtual';
 import Competition from './pages/main/Competition';
 import MatchDetail from './pages/main/MatchDetail';
 import Search from './pages/main/Search';
+import ResponsibleGambling from './pages/main/ResponsibleGambling';
+import AllLiveEvents from './pages/main/AllLiveEvents';
 import MyBets from './pages/main/MyBets';
 import BetDetails from './pages/main/BetDetails';
 import BetConfirmation from './pages/main/BetConfirmation';
@@ -84,6 +86,8 @@ function AppRoutes() {
         <Route path="/competition/:id" element={<Competition />} />
         <Route path="/match/:id" element={<MatchDetail />} />
         <Route path="/search" element={<Search />} />
+        <Route path="/responsible-gambling" element={<ResponsibleGambling />} />
+        <Route path="/live" element={<AllLiveEvents />} />
 
         {/* Virtual Football bet history — full-screen with its own back nav */}
         <Route path="/virtual/history" element={<RequireAuth><VirtualBetHistory /></RequireAuth>} />
