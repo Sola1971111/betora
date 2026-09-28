@@ -3,6 +3,11 @@ import { fetchLiveEvents } from '../services/oddsApi';
 import type { Match } from '../types';
 
 const DEFAULT_REFRESH_MS = 15000;
+// Hard floor, independent of anything the server ever sends — protects
+// against a misconfigured or malformed server value (e.g. a blank env var
+// silently becoming 0) turning into a runaway request loop that can crash
+// the tab. No legitimate reason to poll faster than this exists.
+const MIN_REFRESH_MS = 3000;
 
 interface UseLiveEventsResult {
   matches: Match[];
@@ -59,7 +64,8 @@ export function useLiveEvents(
     };
 
     load(true);
-    const interval = setInterval(() => load(false), refreshIntervalMs);
+    const safeIntervalMs = Number.isFinite(refreshIntervalMs) && refreshIntervalMs >= MIN_REFRESH_MS ? refreshIntervalMs : DEFAULT_REFRESH_MS;
+    const interval = setInterval(() => load(false), safeIntervalMs);
 
     return () => {
       cancelled = true;
