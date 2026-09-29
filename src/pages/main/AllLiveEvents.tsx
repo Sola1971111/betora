@@ -6,7 +6,10 @@ import EmptyState from '../../components/EmptyState';
 import { useLiveEvents } from '../../hooks/useLiveEvents';
 
 export default function AllLiveEvents() {
-  const { matches, loading, error } = useLiveEvents();
+  // /live is the full-breadth page (all sports) — still bounded, not
+  // "fetch everything," since even here we don't want to render or hold
+  // an unbounded list.
+  const { matches, loading, error } = useLiveEvents(undefined, undefined, 60);
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof matches>();
