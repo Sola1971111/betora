@@ -20,8 +20,7 @@ export default function Footer() {
       </div>
 
       <p className="text-micro-text text-text-secondary leading-relaxed">
-        Betora is a demonstration product and does not hold a real gambling license. In a live deployment, this
-        space would display the operator's licensing authority and license number.
+        Betting should be fun, not a way to make money. Only bet what you can afford to lose, set limits, and never chase your losses. If gambling stops being enjoyable or starts affecting your finances or daily life, take a break and seek support. 18+ | Please gamble responsibly.
       </p>
     </footer>
   );
