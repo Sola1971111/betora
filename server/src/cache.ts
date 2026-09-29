@@ -9,11 +9,16 @@ export class TtlCache {
   get<T>(key: string): T | undefined {
     const entry = this.store.get(key);
     if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      this.store.delete(key);
-      return undefined;
-    }
+    if (Date.now() > entry.expiresAt) return undefined; // expired for fresh reads, but kept around for getStale()
     return entry.value as T;
+  }
+
+  /** Returns the last cached value even if its TTL has expired — used as a
+   * fallback when a fresh fetch fails (e.g. upstream rate limiting), so a
+   * temporary provider hiccup serves slightly-stale real data instead of an
+   * empty/incomplete result. */
+  getStale<T>(key: string): T | undefined {
+    return this.store.get(key)?.value as T | undefined;
   }
 
   set<T>(key: string, value: T, ttlMs: number): void {
