@@ -64,21 +64,49 @@ export function parseLeagueId(leagueId: string): ParsedLeague {
 }
 
 /**
- * The curated set of leagues Betora shows, per sport — kept intentionally
- * tiny right now (5 per sport) as a diagnostic step: a much smaller
- * dataset end-to-end makes it possible to tell whether the white-screen
- * crash is actually about data volume, or something else entirely. This
- * is matched against the PARSED display name (not raw provider ids), so
- * it holds regardless of the exact id string a provider happens to use.
+ * The curated set of leagues Betora shows, per sport. Matched against the
+ * PARSED display name (not raw provider ids), so it holds regardless of
+ * the exact id string a provider happens to use.
  *
  * Trivially reversible/extendable — this is a config list, not an
- * architecture. International competitions (Champions League, World Cup,
- * etc.) are deliberately NOT included right now, to keep this test as
- * small and clean as possible; add them back once the root cause is
- * confirmed.
+ * architecture. Covers the world's biggest domestic football leagues plus
+ * European/international competitions; basketball and tennis stay smaller
+ * since they're a secondary focus for Betora.
  */
 const TOP_LEAGUES_BY_SPORT: Record<BetoraSport, string[]> = {
-  football: ['england premier league', 'spain la liga', 'italy serie a', 'germany bundesliga', 'france ligue 1'],
+  // Expanded from the earlier 5-league diagnostic set now that the actual
+  // crash bug (empty team names on outright/futures "events") is fixed —
+  // this costs zero extra requests, since it's still one league= filter
+  // on the same single call per sport, just covering more inventory so
+  // there's enough real match volume to show at any given moment.
+  football: [
+    'england premier league',
+    'spain la liga',
+    'italy serie a',
+    'germany bundesliga',
+    'france ligue 1',
+    'netherlands eredivisie',
+    'portugal primeira liga',
+    'belgium pro league',
+    'turkey super lig',
+    'scotland premiership',
+    'usa major league soccer',
+    'brazil serie a',
+    'argentina primera division',
+    'mexico liga mx',
+    'saudi pro league',
+    // International/European competitions — matched by competition name
+    // alone since these aren't tied to a single country.
+    'champions league',
+    'europa league',
+    'conference league',
+    'nations league',
+    'world cup',
+    'european championship',
+    'copa america',
+    'africa cup',
+    'international friendlies',
+  ],
   basketball: ['nba', 'wnba', 'ncaa', 'euroleague', 'acb'],
   tennis: ['atp', 'wta', 'australian open', 'french open', 'wimbledon', 'us open'],
 };
