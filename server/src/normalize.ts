@@ -91,6 +91,13 @@ export function normalizeOddsRows(
       // drop markets that ended up with zero valid, renderable outcomes
       .filter((m) => m.outcomes.some((o) => o.price !== null));
 
+    // Some providers bundle season-long outright/futures markets ("League
+    // Winner", "Top Scorer") under the same league as real fixtures — these
+    // aren't actual head-to-head matches and have no real home/away teams,
+    // so Betora's match-card UI (built around two named teams) can't
+    // represent them. Skip rather than show a broken/blank card for one.
+    if (!first.home_team?.trim() || !first.away_team?.trim()) continue;
+
     const parsedLeague = parseLeagueId(first.league);
 
     // SharpAPI's /odds rows don't carry a live score — that comes from a

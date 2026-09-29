@@ -53,14 +53,17 @@ export function formatUsd(amount: number): string {
 // Deterministic 2-letter initials + color for a lightweight "crest" badge (no real club logos)
 const crestPalette = ['#16A34A', '#0F172A', '#F59E0B', '#2563EB', '#7C3AED', '#DC2626', '#0891B2'];
 
-export function teamInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+export function teamInitials(name: string | undefined | null): string {
+  const safe = (name ?? '').trim();
+  if (!safe) return '?';
+  const words = safe.split(/\s+/).filter(Boolean);
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-export function teamColor(name: string): string {
+export function teamColor(name: string | undefined | null): string {
+  const safe = name ?? '';
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < safe.length; i++) hash = (hash * 31 + safe.charCodeAt(i)) >>> 0;
   return crestPalette[hash % crestPalette.length];
 }
