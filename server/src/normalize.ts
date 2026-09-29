@@ -1,6 +1,6 @@
 import type { RawOddsRow, RawSportEntry } from './rawTypes.js';
 import type { NormalizedCompetition, NormalizedEvent, NormalizedMarket, NormalizedOutcome, NormalizedSport } from './types.js';
-import { marketMeta, parseLeagueId, isAllowedLeague, sharpSportToBetoraSport, SPORT_DISPLAY_NAMES } from './sportMapping.js';
+import { classifyMarket, parseLeagueId, isAllowedLeague, sharpSportToBetoraSport, SPORT_DISPLAY_NAMES } from './sportMapping.js';
 
 export interface NormalizeConfig {
   defaultBookmaker: string; // SharpAPI sportsbook id, e.g. "pinnacle"; empty string = best-price aggregation
@@ -66,7 +66,7 @@ export function normalizeOddsRows(
 
     const markets: NormalizedMarket[] = Array.from(byMarket.entries())
       .map(([marketType, outcomeMap]) => {
-        const meta = marketMeta(marketType);
+        const meta = classifyMarket(marketType);
         const outcomes: NormalizedOutcome[] = Array.from(outcomeMap.values()).map((row) => {
           const validPrice = Number.isFinite(row.odds_decimal) && row.odds_decimal > 1;
           return {
@@ -84,12 +84,17 @@ export function normalizeOddsRows(
           key: marketType,
           title: meta.title,
           category: meta.category,
+          priority: meta.priority,
           outcomes,
           lastUpdate: latestTimestamp,
         } satisfies NormalizedMarket;
       })
       // drop markets that ended up with zero valid, renderable outcomes
-      .filter((m) => m.outcomes.some((o) => o.price !== null));
+      .filter((m) => m.outcomes.some((o) => o.price !== null))
+      // Main markets first, then category priority order, then each
+      // market's own priority within its category — so the frontend can
+      // trust array order rather than re-sorting client-side.
+      .sort((a, b) => a.priority - b.priority);
 
     // Some providers bundle season-long outright/futures markets ("League
     // Winner", "Top Scorer") under the same league as real fixtures — these

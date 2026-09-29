@@ -92,6 +92,7 @@ function adaptEvent(event: ApiEvent): Match {
       key: m.key,
       name: m.title,
       category: m.category,
+      priority: m.priority,
       selections: m.outcomes.map((o) => ({
         id: o.id,
         label: o.name,

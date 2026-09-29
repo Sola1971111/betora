@@ -15,6 +15,7 @@ export interface NormalizedMarket {
   key: string; // "h2h", "totals", "spreads", ...
   title: string; // human-friendly: "Match Result", "Total Goals", "Handicap"
   category: string; // grouping used for match-detail tabs: "Main", "Goals", "Handicap", "Other"
+  priority: number; // display order within its category — lower shows first
   outcomes: NormalizedOutcome[];
   lastUpdate: string | null; // ISO timestamp from the bookmaker
 }

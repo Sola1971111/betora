@@ -1,30 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 
-interface OddsButtonProps {
-  label: string;
+interface OddsChipProps {
   odds: number | null;
   previousOdds?: number;
   selected?: boolean;
-  disabled?: boolean;
-  oddsChanged?: boolean; // shows an "Odds changed" indicator (spec item 15) rather than the up/down flash
   onClick?: () => void;
-  /** Auto-height + wraps long labels onto multiple lines instead of a
-   * fixed-height single-line button. Used on the match detail page, where
-   * outcome names can be long ("Eldense Win & Over 1.5") — never clip. */
-  wrap?: boolean;
 }
 
-export default function OddsButton({
-  label,
-  odds,
-  previousOdds,
-  selected = false,
-  disabled = false,
-  oddsChanged = false,
-  onClick,
-  wrap = false,
-}: OddsButtonProps) {
+/** Same odds-change flash/arrow behavior as OddsButton, but renders just
+ * the number — used in table layouts where the outcome label is already
+ * shown once as a column header or row label, not repeated per cell. */
+export default function OddsChip({ odds, previousOdds, selected = false, onClick }: OddsChipProps) {
   const [flash, setFlash] = useState<'up' | 'down' | null>(null);
   const prevOddsRef = useRef(odds);
 
@@ -41,35 +28,23 @@ export default function OddsButton({
   const suspended = odds === null;
   const changed = !suspended && previousOdds !== undefined && previousOdds !== odds;
   const isUp = changed && odds > (previousOdds as number);
-  const isDisabled = disabled || suspended;
 
   return (
     <button
       onClick={onClick}
-      disabled={isDisabled}
-      className={`relative flex-1 min-w-[60px] flex flex-col items-center justify-center gap-0.5 rounded border overflow-hidden transition-all duration-150 active:scale-[0.96] ${
-        wrap ? 'min-h-[48px] py-2 px-1.5' : 'h-11'
-      } ${
-        isDisabled
+      disabled={suspended}
+      className={`relative flex-1 flex items-center justify-center h-10 rounded border overflow-hidden transition-all duration-150 active:scale-[0.96] ${
+        suspended
           ? 'bg-slate-100 border-border opacity-60 pointer-events-none'
           : selected
           ? 'bg-primary border-primary text-white'
-          : oddsChanged
-          ? 'bg-amber-light border-amber text-navy'
           : 'bg-white border-border text-text hover:border-primary/50'
       } ${flash === 'up' ? 'animate-[oddsFlashUp_900ms_ease-out]' : ''} ${
         flash === 'down' ? 'animate-[oddsFlashDown_900ms_ease-out]' : ''
       }`}
     >
-      <span
-        className={`text-odds-label text-center ${wrap ? 'whitespace-normal leading-tight' : 'leading-none'} ${
-          selected ? 'text-white/85' : 'text-text-secondary'
-        }`}
-      >
-        {label}
-      </span>
       {suspended ? (
-        <span className="text-small-text font-semibold text-text-secondary leading-none">Suspended</span>
+        <span className="text-small-text font-semibold text-text-secondary">—</span>
       ) : (
         <span className="flex items-center gap-0.5 text-odds leading-none">
           {odds.toFixed(2)}
@@ -80,9 +55,6 @@ export default function OddsButton({
               <ChevronDown size={11} className={selected ? 'text-white' : 'text-error'} strokeWidth={3} />
             ))}
         </span>
-      )}
-      {oddsChanged && !suspended && (
-        <span className="text-[9px] font-semibold text-amber leading-none">Odds changed</span>
       )}
     </button>
   );

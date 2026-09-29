@@ -15,6 +15,7 @@ export interface ApiMarket {
   key: string;
   title: string;
   category: string;
+  priority: number;
   outcomes: ApiOutcome[];
   lastUpdate: string | null;
 }

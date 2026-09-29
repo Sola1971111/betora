@@ -123,25 +123,99 @@ export function isAllowedLeague(sport: BetoraSport, leagueId: string): boolean {
   return keywords.some((kw) => full.includes(kw));
 }
 
-// Market type -> friendly title + detail-page category, keyed by SharpAPI's
-// own market_type strings. Anything not listed falls back to a title-cased
-// version of the key under "Other" so unexpected markets the API adds
-// later don't just disappear.
-export const MARKET_META: Record<string, { title: string; category: string }> = {
-  moneyline: { title: 'Match Result', category: 'Main' },
-  spread: { title: 'Handicap', category: 'Handicap' },
-  alternate_spread: { title: 'Alternate Handicap', category: 'Handicap' },
-  total: { title: 'Total Goals', category: 'Goals' },
-  alternate_total: { title: 'Alternate Totals', category: 'Goals' },
-  btts: { title: 'Both Teams To Score', category: 'Goals' },
-  both_teams_to_score: { title: 'Both Teams To Score', category: 'Goals' },
-  draw_no_bet: { title: 'Draw No Bet', category: 'Main' },
-  double_chance: { title: 'Double Chance', category: 'Main' },
-  team_total: { title: 'Team Total', category: 'Goals' },
-  correct_score: { title: 'Correct Score', category: 'Correct Score' },
-};
+// Market type -> friendly title + detail-page category + display order,
+// keyed off SharpAPI's own market_type strings. This is deliberately
+// PATTERN-based (keyword matching on the normalized key) rather than an
+// exact-string lookup table: SharpAPI's exact key spelling for every
+// market isn't fully confirmed, and a flat lookup silently dumps anything
+// unrecognized into "Other" — which was the original complaint. Rules are
+// tried in order and the first match wins, so more specific patterns
+// (e.g. "half" + "moneyline") are listed before generic ones
+// ("moneyline" alone) to avoid misclassifying half-time markets as Main.
+interface MarketRule {
+  test: (key: string) => boolean;
+  category: string;
+  title: (key: string) => string;
+  priority: number; // display order within its category — lower shows first
+}
 
-export function marketMeta(key: string): { title: string; category: string } {
-  if (MARKET_META[key]) return MARKET_META[key];
-  return { title: titleCase(key), category: 'Other' };
+function normKey(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function has(key: string, ...words: string[]): boolean {
+  return words.every((w) => key.includes(w));
+}
+
+const MARKET_RULES: MarketRule[] = [
+  // ---- HALF — checked early since these often also contain "moneyline"/
+  // "total"/"double_chance", which would otherwise match a Main/Goals rule ----
+  { test: (k) => has(k, 'half') && has(k, 'money') && (k.includes('first') || k.includes('1st') || k.includes('half_1')), category: 'Half', title: () => '1st Half Result', priority: 1 },
+  { test: (k) => has(k, 'half') && has(k, 'money') && (k.includes('second') || k.includes('2nd') || k.includes('half_2')), category: 'Half', title: () => '2nd Half Result', priority: 2 },
+  { test: (k) => has(k, 'half', 'double_chance') && (k.includes('first') || k.includes('1st')), category: 'Half', title: () => '1st Half Double Chance', priority: 3 },
+  { test: (k) => has(k, 'half', 'double_chance') && (k.includes('second') || k.includes('2nd')), category: 'Half', title: () => '2nd Half Double Chance', priority: 4 },
+  { test: (k) => (has(k, 'half_time') && has(k, 'full_time')) || k.includes('htft') || k === 'half_time_full_time', category: 'Half', title: () => 'Half-Time/Full-Time', priority: 5 },
+  { test: (k) => has(k, 'half', 'total') && (k.includes('first') || k.includes('1st')), category: 'Half', title: () => '1st Half Total Goals', priority: 6 },
+  { test: (k) => has(k, 'half', 'total') && (k.includes('second') || k.includes('2nd')), category: 'Half', title: () => '2nd Half Total Goals', priority: 7 },
+  { test: (k) => k.includes('half'), category: 'Half', title: (k) => titleCase(k), priority: 20 }, // any other half-scoped market
+
+  // ---- CORNERS ----
+  { test: (k) => has(k, 'corner', 'total') || k === 'total_corners', category: 'Corners', title: () => 'Total Corners', priority: 1 },
+  { test: (k) => has(k, 'corner', 'team') || k === 'team_corners', category: 'Corners', title: () => 'Team Corners', priority: 2 },
+  { test: (k) => has(k, 'corner') && (k.includes('handicap') || k.includes('spread')), category: 'Corners', title: () => 'Corner Handicap', priority: 3 },
+  { test: (k) => has(k, 'corner', 'first'), category: 'Corners', title: () => 'First Corner', priority: 4 },
+  { test: (k) => has(k, 'corner', 'last'), category: 'Corners', title: () => 'Last Corner', priority: 5 },
+  { test: (k) => has(k, 'corner') && (k.includes('odd') || k.includes('even')), category: 'Corners', title: () => 'Corner Odd/Even', priority: 6 },
+  { test: (k) => k.includes('corner'), category: 'Corners', title: (k) => titleCase(k), priority: 20 },
+
+  // ---- CARDS ----
+  { test: (k) => has(k, 'card', 'total') || k === 'total_cards', category: 'Cards', title: () => 'Total Cards', priority: 1 },
+  { test: (k) => has(k, 'card', 'team') || k === 'team_cards', category: 'Cards', title: () => 'Team Cards', priority: 2 },
+  { test: (k) => has(k, 'card') && k.includes('handicap'), category: 'Cards', title: () => 'Card Handicap', priority: 3 },
+  { test: (k) => has(k, 'card', 'first'), category: 'Cards', title: () => 'First Card', priority: 4 },
+  { test: (k) => has(k, 'card', 'last'), category: 'Cards', title: () => 'Last Card', priority: 5 },
+  { test: (k) => has(k, 'card') && (k.includes('odd') || k.includes('even')), category: 'Cards', title: () => 'Card Odd/Even', priority: 6 },
+  { test: (k) => k.includes('card'), category: 'Cards', title: (k) => titleCase(k), priority: 20 },
+
+  // ---- TEAM (team-specific props that aren't goals/corners/cards) ----
+  { test: (k) => k.includes('clean_sheet'), category: 'Team', title: () => 'Clean Sheet', priority: 1 },
+  { test: (k) => has(k, 'win') && k.includes('nil'), category: 'Team', title: () => 'Win To Nil', priority: 2 },
+
+  // ---- PLAYER ----
+  { test: (k) => k.includes('player') || k.includes('goalscorer') || k.includes('scorer') || k.includes('assist'), category: 'Player', title: (k) => titleCase(k), priority: 10 },
+
+  // ---- HANDICAP ----
+  { test: (k) => k.includes('spread') || k.includes('handicap'), category: 'Handicap', title: () => 'Handicap', priority: 1 },
+
+  // ---- CORRECT SCORE ----
+  { test: (k) => k.includes('correct_score'), category: 'Correct Score', title: () => 'Correct Score', priority: 1 },
+
+  // ---- GOALS ----
+  { test: (k) => k === 'total' || (k.includes('total') && k.includes('goal')) || k.includes('match_result_total_goal'), category: 'Goals', title: () => 'Total Goals', priority: 1 },
+  { test: (k) => k.includes('btts') || k.includes('both_teams'), category: 'Goals', title: () => 'Both Teams To Score', priority: 2 },
+  { test: (k) => k.includes('team_total'), category: 'Goals', title: () => 'Team Total Goals', priority: 3 },
+  { test: (k) => k.includes('exact_goal'), category: 'Goals', title: () => 'Exact Goals', priority: 4 },
+  { test: (k) => k.includes('goal_range') || k.includes('goal_band'), category: 'Goals', title: () => 'Goal Range', priority: 5 },
+  { test: (k) => k.includes('first_goal') || k.includes('last_goal'), category: 'Goals', title: (k) => (k.includes('first') ? 'First Goal' : 'Last Goal'), priority: 6 },
+  { test: (k) => k.includes('total') || k.includes('goal'), category: 'Goals', title: (k) => titleCase(k), priority: 20 },
+
+  // ---- MAIN ----
+  { test: (k) => k === 'moneyline' || k === 'h2h' || k === 'match_result' || k === '1x2', category: 'Main', title: () => 'Match Result', priority: 1 },
+  { test: (k) => k.includes('double_chance'), category: 'Main', title: () => 'Double Chance', priority: 2 },
+  { test: (k) => k.includes('draw_no_bet'), category: 'Main', title: () => 'Draw No Bet', priority: 3 },
+  { test: (k) => k.includes('winning_margin'), category: 'Main', title: () => 'Winning Margin', priority: 4 },
+];
+
+export interface MarketClassification {
+  title: string;
+  category: string;
+  priority: number;
+}
+
+export function classifyMarket(rawKey: string): MarketClassification {
+  const key = normKey(rawKey);
+  for (const rule of MARKET_RULES) {
+    if (rule.test(key)) return { title: rule.title(key), category: rule.category, priority: rule.priority };
+  }
+  return { title: titleCase(key), category: 'Other', priority: 99 };
 }

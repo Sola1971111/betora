@@ -15,6 +15,7 @@ export interface Market {
   key?: string; // provider market key: "h2h", "totals", "spreads" — present for live data, absent for legacy mock data
   name: string; // "Match Result", "Double Chance", "Goals", "Both Teams To Score"
   category?: string; // "Main", "Goals", "Handicap", "Other" — used for match-detail tabs
+  priority?: number; // display order within its category — lower shows first
   selections: MarketSelection[];
 }
 
